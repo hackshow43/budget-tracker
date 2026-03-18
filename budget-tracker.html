@@ -296,7 +296,7 @@
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
 <script>
   // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
-  const CLIENT_ID  = 'b60dd629-2fd9-4db4-9b10-9433f14b7bdb';
+  const CLIENT_ID  = 'YOUR_CLIENT_ID_HERE';
   const FILE_PATH  = 'Home/Finances/2026 Budget Tracker.xlsx';
   // ────────────────────────────────────────────────────────────────────────────────
 
@@ -346,24 +346,21 @@
       const res = await msalClient.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
       return res.accessToken;
     } catch {
-      const res = await msalClient.acquireTokenPopup({ scopes: SCOPES });
-      return res.accessToken;
+      await msalClient.acquireTokenRedirect({ scopes: SCOPES });
+      return null;
     }
   }
 
   async function signIn() {
     try {
-      await msalClient.loginPopup({ scopes: SCOPES });
-      showApp();
+      await msalClient.loginRedirect({ scopes: SCOPES });
     } catch(e) {
       showToast('Sign in failed. Please try again.', true);
     }
   }
 
   function signOut() {
-    msalClient.logoutPopup();
-    document.getElementById('signin-section').style.display = '';
-    document.getElementById('app-section').style.display = 'none';
+    msalClient.logoutRedirect();
   }
 
   function showApp() {
