@@ -253,6 +253,13 @@
     body.dark .empty-trips { color: #98989f; }
     body.dark .toast { background: #3a3a3c; }
     body.dark .route-monthly { background: #1a2f44; color: #0a84ff; }
+    body.dark .db-metric-card { background: #3a3a3c !important; }
+    body.dark .db-metric-card div:first-child { color: #98989f !important; }
+    body.dark #db-top5 .top5-bar-bg { background: #3a3a3c !important; }
+    body.dark #dashboard-loading,
+    body.dark #dashboard-empty { color: #98989f; }
+    body.dark #db-donut-title,
+    body.dark .top5-label { color: #f2f2f7 !important; }
     body.dark .route-travel  { background: #3d2e00; color: #ffd60a; }
     .theme-toggle {
       background: none;
@@ -309,7 +316,7 @@
 
   <div class="tab-row">
     <button class="tab active" onclick="switchTab('log')">Log transaction</button>
-    <button class="tab" onclick="switchTab('trips')">Manage trips</button>
+    <button class="tab" onclick="switchTab('dashboard')">Dashboard</button>
   </div>
 
   <div id="view-log" class="view active">
@@ -386,14 +393,38 @@
     </div>
   </div>
 
-  <div id="view-trips" class="view">
+  <div id="view-dashboard" class="view">
     <div class="card">
-      <div class="section-title">Your trips</div>
-      <div id="trip-list"></div>
-      <div class="add-trip-row">
-        <input type="text" id="new-trip-input" placeholder="New trip name...">
-        <button class="add-trip-btn" onclick="addTrip()">Add</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="section-title" style="margin-bottom:0">Dashboard</div>
+        <select id="dashboard-month" onchange="loadDashboard()" style="width:auto;font-size:14px;padding:6px 10px"></select>
       </div>
+      <div id="dashboard-loading" style="text-align:center;padding:24px 0;color:#6e6e73;font-size:14px;display:none">Loading...</div>
+      <div id="dashboard-content" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+          <div style="background:#f9f9f9;border-radius:10px;padding:12px;text-align:center" id="db-income-card" class="db-metric-card">
+            <div style="font-size:12px;font-weight:500;margin-bottom:4px" id="db-income-label">Income</div>
+            <div style="font-size:20px;font-weight:700;color:#34c759" id="db-income">$0</div>
+          </div>
+          <div style="background:#f9f9f9;border-radius:10px;padding:12px;text-align:center" id="db-expense-card" class="db-metric-card">
+            <div style="font-size:12px;font-weight:500;margin-bottom:4px" id="db-expense-label">Expenses</div>
+            <div style="font-size:20px;font-weight:700;color:#ff3b30" id="db-expense">$0</div>
+          </div>
+        </div>
+        <div style="background:#f9f9f9;border-radius:10px;padding:12px;margin-bottom:16px;text-align:center" id="db-net-card" class="db-metric-card">
+          <div style="font-size:12px;font-weight:500;margin-bottom:4px">Net</div>
+          <div style="font-size:22px;font-weight:700" id="db-net">$0</div>
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:14px;font-weight:600;margin-bottom:10px" id="db-donut-title">Spending by category</div>
+          <canvas id="db-donut" height="220"></canvas>
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:10px">Top 5 categories</div>
+          <div id="db-top5"></div>
+        </div>
+      </div>
+      <div id="dashboard-empty" style="text-align:center;padding:24px 0;color:#6e6e73;font-size:14px;display:none">No data found for this month.</div>
     </div>
   </div>
 </div>
@@ -401,6 +432,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
   // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
   const CLIENT_ID  = 'b60dd629-2fd9-4db4-9b10-9433f14b7bdb';
@@ -482,7 +514,6 @@
     document.getElementById('app-section').style.display = '';
     document.getElementById('user-name').textContent = accounts[0].name || accounts[0].username;
     document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
-    renderTripList();
     renderRecent();
   }
 
@@ -528,41 +559,129 @@
       : '<option value="">No trips yet — add one in Manage trips</option>';
   }
 
-  function renderTripList() {
-    const el = document.getElementById('trip-list');
-    if (!trips.length) {
-      el.innerHTML = '<p class="empty-trips">No trips added yet.</p>';
-      return;
+  let donutChart = null;
+
+  const CHART_COLORS = [
+    '#007aff','#34c759','#ff9500','#ff3b30','#af52de',
+    '#5ac8fa','#ffcc00','#ff2d55','#00c7be','#5e5ce6'
+  ];
+
+  function populateMonthSelect() {
+    const sel = document.getElementById('dashboard-month');
+    const now = new Date();
+    sel.innerHTML = '';
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = d.toLocaleString('en-CA', { month: 'long', year: 'numeric' });
+      const opt = document.createElement('option');
+      opt.value = label;
+      opt.textContent = label;
+      sel.appendChild(opt);
     }
-    el.innerHTML = trips.map((t,i) => `
-      <div class="trip-row">
-        <span>${t}</span>
-        <button class="remove-btn" onclick="removeTrip(${i})">×</button>
-      </div>`).join('');
   }
 
-  function addTrip() {
-    const inp = document.getElementById('new-trip-input');
-    const val = inp.value.trim();
-    if (!val) return;
-    trips.push(val);
-    saveTrips();
-    inp.value = '';
-    renderTripList();
+  async function fetchSheetRows(sheetName, tableName) {
+    const token = await getToken();
+    const encodedPath = FILE_PATH.split('/').map(encodeURIComponent).join('/');
+    const url = `${GRAPH}/me/drive/root:/${encodedPath}:/workbook/worksheets/${encodeURIComponent(sheetName)}/tables/${tableName}/rows`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.value || [];
   }
 
-  function removeTrip(i) {
-    trips.splice(i, 1);
-    saveTrips();
-    renderTripList();
+  async function loadDashboard() {
+    const sheet = document.getElementById('dashboard-month').value;
+    const month = sheet.split(' ')[0];
+    document.getElementById('dashboard-loading').style.display = '';
+    document.getElementById('dashboard-content').style.display = 'none';
+    document.getElementById('dashboard-empty').style.display = 'none';
+
+    try {
+      const [expRows, incRows] = await Promise.all([
+        fetchSheetRows(sheet, month + 'Expenses'),
+        fetchSheetRows(sheet, month + 'Income')
+      ]);
+
+      // Expense rows: Date, Amount, Location, Category, Sub-Category, Notes
+      const expenses = expRows.map(r => ({ amount: parseFloat(r.values[0][1]) || 0, category: r.values[0][3] || 'Other' }));
+      // Income rows: Source, Amount, Notes, Date
+      const totalIncome = incRows.reduce((s, r) => s + (parseFloat(r.values[0][1]) || 0), 0);
+      const totalExpense = expenses.reduce((s, e) => s + e.amount, 0);
+
+      if (!expenses.length && !incRows.length) {
+        document.getElementById('dashboard-loading').style.display = 'none';
+        document.getElementById('dashboard-empty').style.display = '';
+        return;
+      }
+
+      // Income / expense cards
+      document.getElementById('db-income').textContent = '$' + totalIncome.toFixed(2);
+      document.getElementById('db-expense').textContent = '$' + totalExpense.toFixed(2);
+      const net = totalIncome - totalExpense;
+      const netEl = document.getElementById('db-net');
+      netEl.textContent = (net >= 0 ? '+' : '') + '$' + Math.abs(net).toFixed(2);
+      netEl.style.color = net >= 0 ? '#34c759' : '#ff3b30';
+
+      // Category totals
+      const catTotals = {};
+      expenses.forEach(e => { catTotals[e.category] = (catTotals[e.category] || 0) + e.amount; });
+      const sorted = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+
+      // Donut chart
+      if (donutChart) donutChart.destroy();
+      const isDark = document.body.classList.contains('dark');
+      const ctx = document.getElementById('db-donut').getContext('2d');
+      donutChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: sorted.map(c => c[0]),
+          datasets: [{ data: sorted.map(c => c[1]), backgroundColor: CHART_COLORS, borderWidth: 2,
+            borderColor: isDark ? '#2c2c2e' : '#fff' }]
+        },
+        options: {
+          cutout: '65%',
+          plugins: {
+            legend: { position: 'bottom', labels: { color: isDark ? '#f2f2f7' : '#1c1c1e', font: { size: 12 }, padding: 12 } },
+            tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${ctx.raw.toFixed(2)}` } }
+          }
+        }
+      });
+
+      // Top 5 bars
+      const top5 = sorted.slice(0, 5);
+      const max = top5[0]?.[1] || 1;
+      document.getElementById('db-top5').innerHTML = top5.map(([cat, amt], i) => `
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+            <span class="top5-label" style="font-weight:500;color:#1c1c1e">${cat}</span>
+            <span style="color:#6e6e73">$${amt.toFixed(2)}</span>
+          </div>
+          <div class="top5-bar-bg" style="background:#f2f2f7;border-radius:4px;height:8px;overflow:hidden">
+            <div style="height:100%;width:${(amt/max*100).toFixed(1)}%;background:${CHART_COLORS[i]};border-radius:4px;transition:width 0.4s"></div>
+          </div>
+        </div>`).join('');
+
+      document.getElementById('dashboard-loading').style.display = 'none';
+      document.getElementById('dashboard-content').style.display = '';
+    } catch(e) {
+      document.getElementById('dashboard-loading').style.display = 'none';
+      document.getElementById('dashboard-empty').style.display = '';
+      document.getElementById('dashboard-empty').textContent = 'Could not load data. ' + e.message;
+    }
+  }
+
+  function initDashboard() {
+    populateMonthSelect();
+    loadDashboard();
   }
 
   function switchTab(tab) {
     document.querySelectorAll('.tab').forEach((t,i) =>
-      t.classList.toggle('active', (i===0&&tab==='log')||(i===1&&tab==='trips')));
+      t.classList.toggle('active', (i===0&&tab==='log')||(i===1&&tab==='dashboard')));
     document.getElementById('view-log').classList.toggle('active', tab==='log');
-    document.getElementById('view-trips').classList.toggle('active', tab==='trips');
-    if (tab==='trips') renderTripList();
+    document.getElementById('view-dashboard').classList.toggle('active', tab==='dashboard');
+    if (tab==='dashboard') initDashboard();
   }
 
   function getSheetName(dateStr) {
