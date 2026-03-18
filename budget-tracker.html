@@ -363,9 +363,35 @@
           <label>Sub-category</label>
           <select id="subcategory-select"></select>
         </div>
+        <div class="field" id="travel-subcat-field" style="display:none">
+          <label>Category</label>
+          <select id="travel-subcat-select">
+            <option>Hotel</option>
+            <option>Airbnb</option>
+            <option>VRBO</option>
+            <option>Hostel</option>
+            <option>Taxi</option>
+            <option>Shuttle</option>
+            <option>Parking</option>
+            <option>Car Rental</option>
+            <option>Fuel</option>
+            <option>Flights</option>
+            <option>Food</option>
+            <option>Drinks</option>
+            <option>Groceries</option>
+            <option>Tours</option>
+            <option>Experiences</option>
+            <option>Cash Withdrawal</option>
+          </select>
+        </div>
         <div class="field" id="trip-field" style="display:none">
           <label>Trip</label>
-          <select id="trip-select"></select>
+          <select id="trip-select">
+            <option>Mexico</option>
+            <option>PEI</option>
+            <option>Roadtrip</option>
+            <option>Other</option>
+          </select>
         </div>
       </div>
 
@@ -469,9 +495,6 @@
   };
 
   let txType = 'expense';
-  let trips  = JSON.parse(localStorage.getItem('budget_trips') || '[]');
-
-  function saveTrips() { localStorage.setItem('budget_trips', JSON.stringify(trips)); }
 
 
   async function getToken() {
@@ -532,26 +555,21 @@
     if (cat === 'Travel') {
       subField.style.display = 'none';
       tripFld.style.display  = 'block';
+      document.getElementById('travel-subcat-field').style.display = 'block';
       badge.innerHTML = '<div class="route-badge route-travel">Routes to Travel sheet</div>';
-      renderTripSelect();
     } else if (subcats[cat]) {
       subField.style.display = 'block';
       tripFld.style.display  = 'none';
+      document.getElementById('travel-subcat-field').style.display = 'none';
       badge.innerHTML = '<div class="route-badge route-monthly">Routes to monthly sheet</div>';
       document.getElementById('subcategory-select').innerHTML =
         subcats[cat].map(s => `<option>${s}</option>`).join('');
     } else {
       subField.style.display = 'none';
       tripFld.style.display  = 'none';
+      document.getElementById('travel-subcat-field').style.display = 'none';
       badge.innerHTML = cat ? '<div class="route-badge route-monthly">Routes to monthly sheet</div>' : '';
     }
-  }
-
-  function renderTripSelect() {
-    const sel = document.getElementById('trip-select');
-    sel.innerHTML = trips.length
-      ? trips.map(t => `<option>${t}</option>`).join('')
-      : '<option value="">No trips yet — add one in Manage trips</option>';
   }
 
   const BUDGET_CATS = [
@@ -956,6 +974,7 @@
         document.getElementById('category-select').value = '';
         document.getElementById('subcategory-field').style.display = 'none';
         document.getElementById('trip-field').style.display = 'none';
+        document.getElementById('travel-subcat-field').style.display = 'none';
         document.getElementById('route-badge-wrap').innerHTML = '';
       }
 
