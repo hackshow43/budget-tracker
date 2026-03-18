@@ -202,6 +202,22 @@
       font-weight: 500;
     }
     .empty-trips { font-size: 14px; color: #6e6e73; padding: 8px 0 4px; }
+    .recent-title { font-size: 15px; font-weight: 600; color: #1c1c1e; margin-bottom: 12px; }
+    .tx-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #f2f2f7;
+    }
+    .tx-row:last-child { border-bottom: none; }
+    .tx-left { display: flex; flex-direction: column; gap: 2px; }
+    .tx-cat { font-size: 14px; font-weight: 500; color: #1c1c1e; }
+    .tx-meta { font-size: 12px; color: #6e6e73; }
+    .tx-amount { font-size: 15px; font-weight: 600; }
+    .tx-amount.expense { color: #ff3b30; }
+    .tx-amount.income  { color: #34c759; }
+    .no-recent { font-size: 14px; color: #6e6e73; padding: 4px 0; }
   </style>
 </head>
 <body>
@@ -277,6 +293,10 @@
 
       <button class="submit-btn" id="submit-btn" onclick="submitTransaction()">Add transaction</button>
     </div>
+    <div class="card" id="recent-card" style="margin-top:14px">
+      <div class="recent-title">Recent transactions</div>
+      <div id="recent-list"><p class="no-recent">No transactions yet.</p></div>
+    </div>
   </div>
 
   <div id="view-trips" class="view">
@@ -296,7 +316,7 @@
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
 <script>
   // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
-  const CLIENT_ID  = 'YOUR_CLIENT_ID_HERE';
+  const CLIENT_ID  = 'b60dd629-2fd9-4db4-9b10-9433f14b7bdb';
   const FILE_PATH  = 'Home/Finances/2026 Budget Tracker.xlsx';
   // ────────────────────────────────────────────────────────────────────────────────
 
@@ -375,6 +395,7 @@
     document.getElementById('user-name').textContent = accounts[0].name || accounts[0].username;
     document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
     renderTripList();
+    renderRecent();
   }
 
   function setType(t) {
@@ -477,6 +498,32 @@
     }
   }
 
+
+  let recentTx = JSON.parse(localStorage.getItem('budget_recent') || '[]');
+
+  function saveRecent(tx) {
+    recentTx.unshift(tx);
+    if (recentTx.length > 5) recentTx = recentTx.slice(0, 5);
+    localStorage.setItem('budget_recent', JSON.stringify(recentTx));
+    renderRecent();
+  }
+
+  function renderRecent() {
+    const el = document.getElementById('recent-list');
+    if (!recentTx.length) {
+      el.innerHTML = '<p class="no-recent">No transactions yet.</p>';
+      return;
+    }
+    el.innerHTML = recentTx.map(tx => `
+      <div class="tx-row">
+        <div class="tx-left">
+          <span class="tx-cat">${tx.category}${tx.location ? ' · ' + tx.location : ''}</span>
+          <span class="tx-meta">${tx.date}</span>
+        </div>
+        <span class="tx-amount ${tx.type}">$${parseFloat(tx.amount).toFixed(2)}</span>
+      </div>`).join('');
+  }
+
   async function submitTransaction() {
     const date     = document.getElementById('date-input').value;
     const amount   = document.getElementById('amount-input').value;
@@ -499,6 +546,7 @@
         // Travel sheet columns: Date, Amount, Location, Trip, Category, Notes
         await appendRow('Travel', [date, parseFloat(amount), location, trip, cat, notes]);
         showToast(`Logged to Travel sheet (${trip})`);
+        saveRecent({date, amount, location, category: cat + (trip ? ' · ' + trip : ''), type: txType});
       } else {
         const subcat = document.getElementById('subcategory-field').style.display !== 'none'
           ? document.getElementById('subcategory-select').value : '';
@@ -506,6 +554,7 @@
         // Monthly sheet columns: Date, Amount, Location, Category, Sub-Category, Notes
         await appendRow(sheet, [date, parseFloat(amount), location, cat, subcat, notes]);
         showToast(`Logged to ${sheet} sheet`);
+        saveRecent({date, amount, location, category: cat, type: txType});
       }
 
       document.getElementById('amount-input').value   = '';
