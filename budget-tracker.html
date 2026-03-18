@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Budget Tracker</title>
+  <title>Em and Jake's 2026 Budget</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Budget">
@@ -603,8 +603,13 @@
     });
 
     sel.disabled = false;
-    if (sel.options.length > 0) loadDashboard();
-    else {
+    if (sel.options.length > 0) {
+      const now = new Date();
+      const currentMonth = now.toLocaleString('en-CA', { month: 'long', year: 'numeric' });
+      const monthOpt = Array.from(sel.options).find(o => o.value === currentMonth);
+      if (monthOpt) sel.value = currentMonth;
+      loadDashboard();
+    } else {
       document.getElementById('dashboard-loading').style.display = 'none';
       document.getElementById('dashboard-empty').style.display = '';
       document.getElementById('dashboard-empty').textContent = 'No months with data found yet.';
@@ -621,26 +626,45 @@
     return data.value || [];
   }
 
-  function pctColor(pct, baseColor) {
+  function pctColor(pct, baseColor, isSavings) {
+    if (isSavings) {
+      if (pct >= 100) return '#34c759';
+      if (pct >= 80)  return '#30b350';
+      return baseColor;
+    }
     if (pct >= 100) return '#ff3b30';
     if (pct >= 80)  return '#ff9500';
     return baseColor;
   }
 
-  function budgetBar(label, projected, actual, color, isSubcat) {
+  function budgetBar(label, projected, actual, color, isSubcat, isSavings) {
     const pct = projected > 0 ? Math.min((actual / projected) * 100, 110) : 0;
     const displayPct = projected > 0 ? ((actual / projected) * 100).toFixed(0) : '—';
-    const barColor = pctColor(parseFloat(displayPct), color);
+    const remaining = projected - actual;
+    const barColor = pctColor(parseFloat(displayPct), color, isSavings);
     const isDark = document.body.classList.contains('dark');
     const bgColor = isDark ? '#3a3a3c' : '#f2f2f7';
     const labelColor = isDark ? '#f2f2f7' : '#1c1c1e';
     const subLabelColor = isDark ? '#b0b0b8' : '#6e6e73';
     const metaColor = isDark ? '#98989f' : '#6e6e73';
 
+    let remainingStr = '';
+    if (projected > 0) {
+      if (isSavings) {
+        remainingStr = remaining > 0
+          ? `<span style="color:${metaColor};font-size:10px"> · $${remaining.toFixed(0)} to go</span>`
+          : `<span style="color:#34c759;font-size:10px"> · Goal reached!</span>`;
+      } else {
+        remainingStr = remaining >= 0
+          ? `<span style="color:${metaColor};font-size:10px"> · $${remaining.toFixed(0)} left</span>`
+          : `<span style="color:#ff3b30;font-size:10px"> · $${Math.abs(remaining).toFixed(0)} over</span>`;
+      }
+    }
+
     return `
       <div style="margin-bottom:${isSubcat ? 8 : 14}px;${isSubcat ? 'padding-left:14px;border-left:2px solid ' + color + '33' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:${isSubcat ? 12 : 13}px;margin-bottom:4px">
-          <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}</span>
+          <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}${remainingStr}</span>
           <span style="color:${metaColor};font-size:11px">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
         </div>
         <div style="background:${bgColor};border-radius:4px;height:${isSubcat ? 5 : 8}px;overflow:hidden">
@@ -713,8 +737,9 @@
         if (projected > 0 || actual > 0) subBars.push(budgetBar(subcat, projected, actual, color, true));
       });
       if (catProjected > 0 || catActual > 0) {
-        barsHtml += budgetBar(cat, catProjected, catActual, color, false);
-        barsHtml += subBars.join('');
+        const isSavings = cat === 'Savings';
+        barsHtml += budgetBar(cat, catProjected, catActual, color, false, isSavings);
+        barsHtml += subBars.map(([subcat, projected, actual]) => budgetBar(subcat, projected, actual, color, true, isSavings)).join('');
         barsHtml += '<div style="height:8px"></div>';
       }
     });
