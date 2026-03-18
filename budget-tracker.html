@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Budget Tracker</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f2f2f7;
+      color: #1c1c1e;
+      min-height: 100vh;
+      padding: 16px;
+      padding-bottom: 40px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #1c1c1e;
+    }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 18px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .tab-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      padding: 9px;
+      border-radius: 10px;
+      border: none;
+      background: #fff;
+      color: #6e6e73;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .tab.active {
+      background: #1c1c1e;
+      color: #fff;
+    }
+    .view { display: none; }
+    .view.active { display: block; }
+    .field { margin-bottom: 14px; }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #6e6e73;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    input, select, textarea {
+      width: 100%;
+      font-size: 16px;
+      padding: 10px 12px;
+      border: 1px solid #e5e5ea;
+      border-radius: 10px;
+      background: #f9f9f9;
+      color: #1c1c1e;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #007aff;
+      background: #fff;
+    }
+    textarea { resize: none; height: 72px; }
+    .toggle-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .toggle-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #e5e5ea;
+      background: #f9f9f9;
+      color: #6e6e73;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .toggle-btn.active-expense { background: #fff0f0; border-color: #ff3b30; color: #ff3b30; }
+    .toggle-btn.active-income  { background: #f0fff4; border-color: #34c759; color: #34c759; }
+    .route-badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+    .route-monthly { background: #e8f4fd; color: #007aff; }
+    .route-travel  { background: #fff8e6; color: #ff9500; }
+    .submit-btn {
+      width: 100%;
+      padding: 14px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .submit-btn:active { opacity: 0.85; transform: scale(0.98); }
+    .submit-btn:disabled { background: #c7c7cc; cursor: not-allowed; transform: none; }
+    .toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #1c1c1e;
+      color: #fff;
+      padding: 12px 22px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: transform 0.3s ease;
+      z-index: 999;
+      white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: #ff3b30; }
+    .section-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; color: #1c1c1e; }
+    .trip-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f2f2f7;
+    }
+    .trip-row:last-child { border-bottom: none; }
+    .trip-row span { flex: 1; font-size: 15px; }
+    .remove-btn {
+      background: none;
+      border: none;
+      color: #ff3b30;
+      font-size: 22px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .add-trip-row { display: flex; gap: 8px; margin-top: 12px; }
+    .add-trip-row input { flex: 1; }
+    .add-trip-btn {
+      padding: 10px 16px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .signin-card {
+      text-align: center;
+      padding: 32px 20px;
+    }
+    .signin-card p {
+      color: #6e6e73;
+      font-size: 15px;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .signin-btn {
+      display: inline-block;
+      padding: 13px 28px;
+      background: #007aff;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .user-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .user-bar span { font-size: 14px; color: #6e6e73; }
+    .signout-btn {
+      font-size: 13px;
+      color: #ff3b30;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .empty-trips { font-size: 14px; color: #6e6e73; padding: 8px 0 4px; }
+  </style>
+</head>
+<body>
+
+<h1>Budget Tracker</h1>
+
+<div id="signin-section" class="card signin-card" style="display:none">
+  <p>Sign in with your Microsoft account to log transactions to your Excel budget on OneDrive.</p>
+  <button class="signin-btn" onclick="signIn()">Sign in with Microsoft</button>
+</div>
+
+<div id="app-section" style="display:none">
+  <div class="user-bar">
+    <span id="user-name"></span>
+    <button class="signout-btn" onclick="signOut()">Sign out</button>
+  </div>
+
+  <div class="tab-row">
+    <button class="tab active" onclick="switchTab('log')">Log transaction</button>
+    <button class="tab" onclick="switchTab('trips')">Manage trips</button>
+  </div>
+
+  <div id="view-log" class="view active">
+    <div class="card">
+      <div class="toggle-row">
+        <button class="toggle-btn active-expense" id="btn-expense" onclick="setType('expense')">Expense</button>
+        <button class="toggle-btn" id="btn-income" onclick="setType('income')">Income</button>
+      </div>
+
+      <div id="route-badge-wrap"></div>
+
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="date-input">
+      </div>
+      <div class="field">
+        <label>Amount ($)</label>
+        <input type="number" id="amount-input" placeholder="0.00" min="0" step="0.01">
+      </div>
+      <div class="field">
+        <label>Location</label>
+        <input type="text" id="location-input" placeholder="e.g. Superstore, Shell">
+      </div>
+      <div class="field">
+        <label>Category</label>
+        <select id="category-select" onchange="updateSubcategory()">
+          <option value="">Select category...</option>
+          <option>Housing</option>
+          <option>Transportation</option>
+          <option>Insurance</option>
+          <option>Food</option>
+          <option>Personal Care</option>
+          <option>Entertainment</option>
+          <option>Loans</option>
+          <option>Savings</option>
+          <option>Gifts</option>
+          <option>Trips</option>
+          <option>Travel</option>
+        </select>
+      </div>
+      <div class="field" id="subcategory-field" style="display:none">
+        <label>Sub-category</label>
+        <select id="subcategory-select"></select>
+      </div>
+      <div class="field" id="trip-field" style="display:none">
+        <label>Trip</label>
+        <select id="trip-select"></select>
+      </div>
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="notes-input" placeholder="Optional note..."></textarea>
+      </div>
+
+      <button class="submit-btn" id="submit-btn" onclick="submitTransaction()">Add transaction</button>
+    </div>
+  </div>
+
+  <div id="view-trips" class="view">
+    <div class="card">
+      <div class="section-title">Your trips</div>
+      <div id="trip-list"></div>
+      <div class="add-trip-row">
+        <input type="text" id="new-trip-input" placeholder="New trip name...">
+        <button class="add-trip-btn" onclick="addTrip()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<script>
+  // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
+  const CLIENT_ID  = 'b60dd629-2fd9-4db4-9b10-9433f14b7bdb';
+  const FILE_PATH  = 'Home/Finances/2026 Budget Tracker.xlsx';
+  // ────────────────────────────────────────────────────────────────────────────────
+
+  const SCOPES = ['Files.ReadWrite', 'User.Read'];
+  const GRAPH  = 'https://graph.microsoft.com/v1.0';
+
+  const msalConfig = {
+    auth: {
+      clientId: CLIENT_ID,
+      authority: 'https://login.microsoftonline.com/common',
+      redirectUri: window.location.href.split('?')[0]
+    },
+    cache: { cacheLocation: 'localStorage' }
+  };
+
+  let msalClient = null;
+
+  async function initMsal() {
+    msalClient = new msal.PublicClientApplication(msalConfig);
+    await msalClient.initialize();
+    await msalClient.handleRedirectPromise();
+    showApp();
+  }
+
+  const subcats = {
+    Housing: ['Rent','Phone','Electricity','Internet'],
+    Transportation: ['Car Payment','Bus/taxi fare','Parking','BCAA','Fuel','Maintenance','Other'],
+    Insurance: ['Home','Car','Life','Other'],
+    Food: ['Groceries','Dining out','Other'],
+    'Personal Care': ['Supplements/Meds','Hair/nails','Clothing','Health Services','Health club','Home goods','Sports'],
+    Entertainment: ["Night out","Spotify","Jake's Fun Money","Em's Fun Money","Events","Adventure","Netflix","TV","iCloud Storage"],
+    Loans: ["Jake's Student","Em's Student","Apple for Phones","Line of Credit","Credit card","Flexiti"],
+    Savings: ['RRSP','FHSA','TFSA','Travel','Other'],
+    Gifts: ['Christmas Savings','Gifts','Special Events'],
+    Trips: ['Hotel','Airbnb','VRBO','Hostel','Taxi','Shuttle','Parking','Car Rental','Fuel','Flights','Food','Drinks','Groceries','Tours','Experiences','Cash Withdrawal']
+  };
+
+  let txType = 'expense';
+  let trips  = JSON.parse(localStorage.getItem('budget_trips') || '[]');
+
+  function saveTrips() { localStorage.setItem('budget_trips', JSON.stringify(trips)); }
+
+  async function getToken() {
+    const accounts = msalClient.getAllAccounts();
+    if (!accounts.length) return null;
+    try {
+      const res = await msalClient.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+      return res.accessToken;
+    } catch {
+      const res = await msalClient.acquireTokenPopup({ scopes: SCOPES });
+      return res.accessToken;
+    }
+  }
+
+  async function signIn() {
+    try {
+      await msalClient.loginPopup({ scopes: SCOPES });
+      showApp();
+    } catch(e) {
+      showToast('Sign in failed. Please try again.', true);
+    }
+  }
+
+  function signOut() {
+    msalClient.logoutPopup();
+    document.getElementById('signin-section').style.display = '';
+    document.getElementById('app-section').style.display = 'none';
+  }
+
+  function showApp() {
+    const accounts = msalClient.getAllAccounts();
+    if (!accounts.length) {
+      document.getElementById('signin-section').style.display = '';
+      document.getElementById('app-section').style.display = 'none';
+      return;
+    }
+    document.getElementById('signin-section').style.display = 'none';
+    document.getElementById('app-section').style.display = '';
+    document.getElementById('user-name').textContent = accounts[0].name || accounts[0].username;
+    document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
+    renderTripList();
+  }
+
+  function setType(t) {
+    txType = t;
+    document.getElementById('btn-expense').className = 'toggle-btn' + (t==='expense' ? ' active-expense' : '');
+    document.getElementById('btn-income').className  = 'toggle-btn' + (t==='income'  ? ' active-income'  : '');
+  }
+
+  function updateSubcategory() {
+    const cat      = document.getElementById('category-select').value;
+    const subField = document.getElementById('subcategory-field');
+    const tripFld  = document.getElementById('trip-field');
+    const badge    = document.getElementById('route-badge-wrap');
+
+    if (cat === 'Travel') {
+      subField.style.display = 'none';
+      tripFld.style.display  = 'block';
+      badge.innerHTML = '<div class="route-badge route-travel">Routes to Travel sheet</div>';
+      renderTripSelect();
+    } else if (subcats[cat]) {
+      subField.style.display = 'block';
+      tripFld.style.display  = 'none';
+      badge.innerHTML = '<div class="route-badge route-monthly">Routes to monthly sheet</div>';
+      document.getElementById('subcategory-select').innerHTML =
+        subcats[cat].map(s => `<option>${s}</option>`).join('');
+    } else {
+      subField.style.display = 'none';
+      tripFld.style.display  = 'none';
+      badge.innerHTML = cat ? '<div class="route-badge route-monthly">Routes to monthly sheet</div>' : '';
+    }
+  }
+
+  function renderTripSelect() {
+    const sel = document.getElementById('trip-select');
+    sel.innerHTML = trips.length
+      ? trips.map(t => `<option>${t}</option>`).join('')
+      : '<option value="">No trips yet — add one in Manage trips</option>';
+  }
+
+  function renderTripList() {
+    const el = document.getElementById('trip-list');
+    if (!trips.length) {
+      el.innerHTML = '<p class="empty-trips">No trips added yet.</p>';
+      return;
+    }
+    el.innerHTML = trips.map((t,i) => `
+      <div class="trip-row">
+        <span>${t}</span>
+        <button class="remove-btn" onclick="removeTrip(${i})">×</button>
+      </div>`).join('');
+  }
+
+  function addTrip() {
+    const inp = document.getElementById('new-trip-input');
+    const val = inp.value.trim();
+    if (!val) return;
+    trips.push(val);
+    saveTrips();
+    inp.value = '';
+    renderTripList();
+  }
+
+  function removeTrip(i) {
+    trips.splice(i, 1);
+    saveTrips();
+    renderTripList();
+  }
+
+  function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach((t,i) =>
+      t.classList.toggle('active', (i===0&&tab==='log')||(i===1&&tab==='trips')));
+    document.getElementById('view-log').classList.toggle('active', tab==='log');
+    document.getElementById('view-trips').classList.toggle('active', tab==='trips');
+    if (tab==='trips') renderTripList();
+  }
+
+  function getSheetName(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleString('en-CA', { month: 'long', year: 'numeric' });
+  }
+
+  function getTableName(sheetName) {
+    if (sheetName === 'Travel') return 'TravelExpenses';
+    const monthName = sheetName.split(' ')[0];
+    return monthName + 'Expenses';
+  }
+
+  async function appendRow(sheetName, row) {
+    const token = await getToken();
+    const tableName = getTableName(sheetName);
+    const encodedPath = FILE_PATH.split('/').map(encodeURIComponent).join('/');
+    const url = `${GRAPH}/me/drive/root:/${encodedPath}:/workbook/worksheets/${encodeURIComponent(sheetName)}/tables/${tableName}/rows`;    const res = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [row] })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || 'Failed to write to Excel');
+    }
+  }
+
+  async function submitTransaction() {
+    const date     = document.getElementById('date-input').value;
+    const amount   = document.getElementById('amount-input').value;
+    const location = document.getElementById('location-input').value.trim();
+    const cat      = document.getElementById('category-select').value;
+    const notes    = document.getElementById('notes-input').value.trim();
+
+    if (!date || !amount || !cat) {
+      showToast('Please fill in date, amount, and category.', true);
+      return;
+    }
+
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      if (cat === 'Travel') {
+        const trip = document.getElementById('trip-select').value;
+        // Travel sheet columns: Date, Amount, Location, Trip, Category, Notes
+        await appendRow('Travel', [date, parseFloat(amount), location, trip, cat, notes]);
+        showToast(`Logged to Travel sheet (${trip})`);
+      } else {
+        const subcat = document.getElementById('subcategory-field').style.display !== 'none'
+          ? document.getElementById('subcategory-select').value : '';
+        const sheet = getSheetName(date);
+        // Monthly sheet columns: Date, Amount, Location, Category, Sub-Category, Notes
+        await appendRow(sheet, [date, parseFloat(amount), location, cat, subcat, notes]);
+        showToast(`Logged to ${sheet} sheet`);
+      }
+
+      document.getElementById('amount-input').value   = '';
+      document.getElementById('location-input').value = '';
+      document.getElementById('notes-input').value    = '';
+      document.getElementById('category-select').value = '';
+      document.getElementById('subcategory-field').style.display = 'none';
+      document.getElementById('trip-field').style.display = 'none';
+      document.getElementById('route-badge-wrap').innerHTML = '';
+      document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
+
+    } catch(e) {
+      showToast(e.message || 'Something went wrong.', true);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Add transaction';
+  }
+
+  function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isError ? ' error' : '') + ' show';
+    setTimeout(() => { t.className = 'toast' + (isError ? ' error' : ''); }, 3500);
+  }
+
+  // Init
+  initMsal();
+</script>
+</body>
+</html>
