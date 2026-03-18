@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Em and Jake's 2026 Budget</title>
+  <title>Budget Tracker</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Budget">
@@ -734,12 +734,12 @@
         const actual    = parseFloat(r.values[0][2]) || 0;
         catProjected += projected;
         catActual    += actual;
-        if (projected > 0 || actual > 0) subBars.push(budgetBar(subcat, projected, actual, color, true));
+        if (projected > 0 || actual > 0) subBars.push([subcat, projected, actual]);
       });
       if (catProjected > 0 || catActual > 0) {
         const isSavings = cat === 'Savings';
         barsHtml += budgetBar(cat, catProjected, catActual, color, false, isSavings);
-        barsHtml += subBars.map(([subcat, projected, actual]) => budgetBar(subcat, projected, actual, color, true, isSavings)).join('');
+        barsHtml += subBars.map(([subcat, proj, act]) => budgetBar(subcat, proj, act, color, true, isSavings)).join('');
         barsHtml += '<div style="height:8px"></div>';
       }
     });
