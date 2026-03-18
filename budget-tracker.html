@@ -257,35 +257,50 @@
         <label>Amount ($)</label>
         <input type="number" id="amount-input" placeholder="0.00" min="0" step="0.01">
       </div>
-      <div class="field">
-        <label>Location</label>
-        <input type="text" id="location-input" placeholder="e.g. Superstore, Shell">
+
+      <div id="expense-fields">
+        <div class="field">
+          <label>Location</label>
+          <input type="text" id="location-input" placeholder="e.g. Superstore, Shell">
+        </div>
+        <div class="field">
+          <label>Category</label>
+          <select id="category-select" onchange="updateSubcategory()">
+            <option value="">Select category...</option>
+            <option>Housing</option>
+            <option>Transportation</option>
+            <option>Insurance</option>
+            <option>Food</option>
+            <option>Personal Care</option>
+            <option>Entertainment</option>
+            <option>Loans</option>
+            <option>Savings</option>
+            <option>Gifts</option>
+            <option>Trips</option>
+            <option>Travel</option>
+          </select>
+        </div>
+        <div class="field" id="subcategory-field" style="display:none">
+          <label>Sub-category</label>
+          <select id="subcategory-select"></select>
+        </div>
+        <div class="field" id="trip-field" style="display:none">
+          <label>Trip</label>
+          <select id="trip-select"></select>
+        </div>
       </div>
-      <div class="field">
-        <label>Category</label>
-        <select id="category-select" onchange="updateSubcategory()">
-          <option value="">Select category...</option>
-          <option>Housing</option>
-          <option>Transportation</option>
-          <option>Insurance</option>
-          <option>Food</option>
-          <option>Personal Care</option>
-          <option>Entertainment</option>
-          <option>Loans</option>
-          <option>Savings</option>
-          <option>Gifts</option>
-          <option>Trips</option>
-          <option>Travel</option>
-        </select>
+
+      <div id="income-fields" style="display:none">
+        <div class="field">
+          <label>Source</label>
+          <select id="source-select">
+            <option>Jake's Income</option>
+            <option>Em's Income</option>
+            <option>Extra Income</option>
+          </select>
+        </div>
       </div>
-      <div class="field" id="subcategory-field" style="display:none">
-        <label>Sub-category</label>
-        <select id="subcategory-select"></select>
-      </div>
-      <div class="field" id="trip-field" style="display:none">
-        <label>Trip</label>
-        <select id="trip-select"></select>
-      </div>
+
       <div class="field">
         <label>Notes</label>
         <textarea id="notes-input" placeholder="Optional note..."></textarea>
@@ -402,6 +417,11 @@
     txType = t;
     document.getElementById('btn-expense').className = 'toggle-btn' + (t==='expense' ? ' active-expense' : '');
     document.getElementById('btn-income').className  = 'toggle-btn' + (t==='income'  ? ' active-income'  : '');
+    document.getElementById('expense-fields').style.display = t === 'expense' ? '' : 'none';
+    document.getElementById('income-fields').style.display  = t === 'income'  ? '' : 'none';
+    document.getElementById('route-badge-wrap').innerHTML = '';
+    document.getElementById('subcategory-field').style.display = 'none';
+    document.getElementById('trip-field').style.display = 'none';
   }
 
   function updateSubcategory() {
@@ -525,15 +545,15 @@
   }
 
   async function submitTransaction() {
-    const date     = document.getElementById('date-input').value;
-    const amount   = document.getElementById('amount-input').value;
-    const location = document.getElementById('location-input').value.trim();
-    const cat      = document.getElementById('category-select').value;
-    const notes    = document.getElementById('notes-input').value.trim();
+    const date   = document.getElementById('date-input').value;
+    const amount = document.getElementById('amount-input').value;
+    const notes  = document.getElementById('notes-input').value.trim();
 
-    if (!date || !amount || !cat) {
-      showToast('Please fill in date, amount, and category.', true);
-      return;
+    if (txType === 'income') {
+      if (!date || !amount) { showToast('Please fill in date and amount.', true); return; }
+    } else {
+      const cat = document.getElementById('category-select').value;
+      if (!date || !amount || !cat) { showToast('Please fill in date, amount, and category.', true); return; }
     }
 
     const btn = document.getElementById('submit-btn');
@@ -541,30 +561,50 @@
     btn.textContent = 'Saving...';
 
     try {
-      if (cat === 'Travel') {
-        const trip = document.getElementById('trip-select').value;
-        // Travel sheet columns: Date, Amount, Location, Trip, Category, Notes
-        await appendRow('Travel', [date, parseFloat(amount), location, trip, cat, notes]);
-        showToast(`Logged to Travel sheet (${trip})`);
-        saveRecent({date, amount, location, category: cat + (trip ? ' · ' + trip : ''), type: txType});
+      const sheet = getSheetName(date);
+
+      if (txType === 'income') {
+        const source = document.getElementById('source-select').value;
+        const tableName = sheet.split(' ')[0] + 'Income';
+        const encodedPath = FILE_PATH.split('/').map(encodeURIComponent).join('/');
+        const url = `${GRAPH}/me/drive/root:/${encodedPath}:/workbook/worksheets/${encodeURIComponent(sheet)}/tables/${tableName}/rows`;
+        const token = await getToken();
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: [[source, parseFloat(amount), notes, date]] })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Failed to write'); }
+        showToast(`Income logged to ${sheet} sheet`);
+        saveRecent({date, amount, location: '', category: source, type: 'income'});
+
       } else {
-        const subcat = document.getElementById('subcategory-field').style.display !== 'none'
-          ? document.getElementById('subcategory-select').value : '';
-        const sheet = getSheetName(date);
-        // Monthly sheet columns: Date, Amount, Location, Category, Sub-Category, Notes
-        await appendRow(sheet, [date, parseFloat(amount), location, cat, subcat, notes]);
-        showToast(`Logged to ${sheet} sheet`);
-        saveRecent({date, amount, location, category: cat, type: txType});
+        const cat      = document.getElementById('category-select').value;
+        const location = document.getElementById('location-input').value.trim();
+        if (cat === 'Travel') {
+          const trip = document.getElementById('trip-select').value;
+          await appendRow('Travel', [date, parseFloat(amount), location, trip, cat, notes]);
+          showToast(`Logged to Travel sheet (${trip})`);
+          saveRecent({date, amount, location, category: cat + (trip ? ' · ' + trip : ''), type: 'expense'});
+        } else {
+          const subcat = document.getElementById('subcategory-field').style.display !== 'none'
+            ? document.getElementById('subcategory-select').value : '';
+          await appendRow(sheet, [date, parseFloat(amount), location, cat, subcat, notes]);
+          showToast(`Logged to ${sheet} sheet`);
+          saveRecent({date, amount, location, category: cat, type: 'expense'});
+        }
       }
 
       document.getElementById('amount-input').value   = '';
-      document.getElementById('location-input').value = '';
       document.getElementById('notes-input').value    = '';
-      document.getElementById('category-select').value = '';
-      document.getElementById('subcategory-field').style.display = 'none';
-      document.getElementById('trip-field').style.display = 'none';
-      document.getElementById('route-badge-wrap').innerHTML = '';
       document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
+      if (txType === 'expense') {
+        document.getElementById('location-input').value = '';
+        document.getElementById('category-select').value = '';
+        document.getElementById('subcategory-field').style.display = 'none';
+        document.getElementById('trip-field').style.display = 'none';
+        document.getElementById('route-badge-wrap').innerHTML = '';
+      }
 
     } catch(e) {
       showToast(e.message || 'Something went wrong.', true);
