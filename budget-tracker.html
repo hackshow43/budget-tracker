@@ -415,12 +415,8 @@
           <div style="font-size:12px;font-weight:500;margin-bottom:4px">Net</div>
           <div style="font-size:22px;font-weight:700" id="db-net">$0</div>
         </div>
-        <div style="margin-bottom:16px">
-          <div style="font-size:14px;font-weight:600;margin-bottom:10px" id="db-donut-title">Spending by category</div>
-          <canvas id="db-donut" height="220"></canvas>
-        </div>
         <div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:10px">Top 5 categories</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px" id="db-chart-title">Budget vs actual</div>
           <div id="db-top5"></div>
         </div>
       </div>
@@ -432,7 +428,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
   // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
   const CLIENT_ID  = 'b60dd629-2fd9-4db4-9b10-9433f14b7bdb';
@@ -559,24 +554,60 @@
       : '<option value="">No trips yet — add one in Manage trips</option>';
   }
 
-  let donutChart = null;
-
-  const CHART_COLORS = [
-    '#007aff','#34c759','#ff9500','#ff3b30','#af52de',
-    '#5ac8fa','#ffcc00','#ff2d55','#00c7be','#5e5ce6'
+  const BUDGET_CATS = [
+    'Transportation', 'Food', 'Personal Care', 'Entertainment', 'Savings', 'Gifts'
   ];
 
-  function populateMonthSelect() {
+  const CAT_COLORS = {
+    Transportation: '#007aff', Food: '#34c759', 'Personal Care': '#af52de',
+    Entertainment: '#ff9500', Savings: '#00c7be', Gifts: '#ff2d55'
+  };
+
+  const ALL_2026_MONTHS = [
+    'January 2026','February 2026','March 2026','April 2026','May 2026','June 2026',
+    'July 2026','August 2026','September 2026','October 2026','November 2026','December 2026'
+  ];
+
+  async function populateMonthSelect() {
     const sel = document.getElementById('dashboard-month');
-    const now = new Date();
+    sel.innerHTML = '<option value="">Checking months...</option>';
+    sel.disabled = true;
+
+    const token = await getToken();
+    const encodedPath = FILE_PATH.split('/').map(encodeURIComponent).join('/');
+
+    const checks = await Promise.all(ALL_2026_MONTHS.map(async month => {
+      const monthName = month.split(' ')[0];
+      const url = `${GRAPH}/me/drive/root:/${encodedPath}:/workbook/worksheets/${encodeURIComponent(month)}/tables/${monthName}Expenses/rows?$top=1`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return (data.value && data.value.length > 0) ? month : null;
+    }));
+
+    const validMonths = checks.filter(Boolean);
     sel.innerHTML = '';
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const label = d.toLocaleString('en-CA', { month: 'long', year: 'numeric' });
+
+    if (validMonths.length > 1) {
+      const yearOpt = document.createElement('option');
+      yearOpt.value = 'YEAR_2026';
+      yearOpt.textContent = '2026 — Full Year';
+      sel.appendChild(yearOpt);
+    }
+
+    validMonths.forEach(month => {
       const opt = document.createElement('option');
-      opt.value = label;
-      opt.textContent = label;
+      opt.value = month;
+      opt.textContent = month;
       sel.appendChild(opt);
+    });
+
+    sel.disabled = false;
+    if (sel.options.length > 0) loadDashboard();
+    else {
+      document.getElementById('dashboard-loading').style.display = 'none';
+      document.getElementById('dashboard-empty').style.display = '';
+      document.getElementById('dashboard-empty').textContent = 'No months with data found yet.';
     }
   }
 
@@ -590,90 +621,195 @@
     return data.value || [];
   }
 
+  function pctColor(pct, baseColor) {
+    if (pct >= 100) return '#ff3b30';
+    if (pct >= 80)  return '#ff9500';
+    return baseColor;
+  }
+
+  function budgetBar(label, projected, actual, color, isSubcat) {
+    const pct = projected > 0 ? Math.min((actual / projected) * 100, 110) : 0;
+    const displayPct = projected > 0 ? ((actual / projected) * 100).toFixed(0) : '—';
+    const barColor = pctColor(parseFloat(displayPct), color);
+    const isDark = document.body.classList.contains('dark');
+    const bgColor = isDark ? '#3a3a3c' : '#f2f2f7';
+    const labelColor = isDark ? '#f2f2f7' : '#1c1c1e';
+    const subLabelColor = isDark ? '#b0b0b8' : '#6e6e73';
+    const metaColor = isDark ? '#98989f' : '#6e6e73';
+
+    return `
+      <div style="margin-bottom:${isSubcat ? 8 : 14}px;${isSubcat ? 'padding-left:14px;border-left:2px solid ' + color + '33' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:${isSubcat ? 12 : 13}px;margin-bottom:4px">
+          <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}</span>
+          <span style="color:${metaColor};font-size:11px">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
+        </div>
+        <div style="background:${bgColor};border-radius:4px;height:${isSubcat ? 5 : 8}px;overflow:hidden">
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease"></div>
+        </div>
+      </div>`;
+  }
+
   async function loadDashboard() {
-    const sheet = document.getElementById('dashboard-month').value;
-    const month = sheet.split(' ')[0];
+    const sel = document.getElementById('dashboard-month');
+    const value = sel.value;
+    if (!value) return;
+
     document.getElementById('dashboard-loading').style.display = '';
     document.getElementById('dashboard-content').style.display = 'none';
     document.getElementById('dashboard-empty').style.display = 'none';
 
     try {
-      const [expRows, incRows] = await Promise.all([
-        fetchSheetRows(sheet, month + 'Expenses'),
-        fetchSheetRows(sheet, month + 'Income')
-      ]);
-
-      // Expense rows: Date, Amount, Location, Category, Sub-Category, Notes
-      const expenses = expRows.map(r => ({ amount: parseFloat(r.values[0][1]) || 0, category: r.values[0][3] || 'Other' }));
-      // Income rows: Source, Amount, Notes, Date
-      const totalIncome = incRows.reduce((s, r) => s + (parseFloat(r.values[0][1]) || 0), 0);
-      const totalExpense = expenses.reduce((s, e) => s + e.amount, 0);
-
-      if (!expenses.length && !incRows.length) {
-        document.getElementById('dashboard-loading').style.display = 'none';
-        document.getElementById('dashboard-empty').style.display = '';
-        return;
+      if (value === 'YEAR_2026') {
+        await loadYearDashboard();
+      } else {
+        await loadMonthDashboard(value);
       }
-
-      // Income / expense cards
-      document.getElementById('db-income').textContent = '$' + totalIncome.toFixed(2);
-      document.getElementById('db-expense').textContent = '$' + totalExpense.toFixed(2);
-      const net = totalIncome - totalExpense;
-      const netEl = document.getElementById('db-net');
-      netEl.textContent = (net >= 0 ? '+' : '') + '$' + Math.abs(net).toFixed(2);
-      netEl.style.color = net >= 0 ? '#34c759' : '#ff3b30';
-
-      // Category totals
-      const catTotals = {};
-      expenses.forEach(e => { catTotals[e.category] = (catTotals[e.category] || 0) + e.amount; });
-      const sorted = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
-
-      // Donut chart
-      if (donutChart) donutChart.destroy();
-      const isDark = document.body.classList.contains('dark');
-      const ctx = document.getElementById('db-donut').getContext('2d');
-      donutChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: sorted.map(c => c[0]),
-          datasets: [{ data: sorted.map(c => c[1]), backgroundColor: CHART_COLORS, borderWidth: 2,
-            borderColor: isDark ? '#2c2c2e' : '#fff' }]
-        },
-        options: {
-          cutout: '65%',
-          plugins: {
-            legend: { position: 'bottom', labels: { color: isDark ? '#f2f2f7' : '#1c1c1e', font: { size: 12 }, padding: 12 } },
-            tooltip: { callbacks: { label: ctx => ` ${ctx.label}: $${ctx.raw.toFixed(2)}` } }
-          }
-        }
-      });
-
-      // Top 5 bars
-      const top5 = sorted.slice(0, 5);
-      const max = top5[0]?.[1] || 1;
-      document.getElementById('db-top5').innerHTML = top5.map(([cat, amt], i) => `
-        <div style="margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-            <span class="top5-label" style="font-weight:500;color:#1c1c1e">${cat}</span>
-            <span style="color:#6e6e73">$${amt.toFixed(2)}</span>
-          </div>
-          <div class="top5-bar-bg" style="background:#f2f2f7;border-radius:4px;height:8px;overflow:hidden">
-            <div style="height:100%;width:${(amt/max*100).toFixed(1)}%;background:${CHART_COLORS[i]};border-radius:4px;transition:width 0.4s"></div>
-          </div>
-        </div>`).join('');
-
-      document.getElementById('dashboard-loading').style.display = 'none';
-      document.getElementById('dashboard-content').style.display = '';
     } catch(e) {
       document.getElementById('dashboard-loading').style.display = 'none';
       document.getElementById('dashboard-empty').style.display = '';
-      document.getElementById('dashboard-empty').textContent = 'Could not load data. ' + e.message;
+      document.getElementById('dashboard-empty').textContent = 'Could not load data: ' + e.message;
     }
   }
 
+  async function loadMonthDashboard(sheet) {
+    const month = sheet.split(' ')[0];
+
+    const [expRows, incRows, ...budgetRows] = await Promise.all([
+      fetchSheetRows(sheet, month + 'Expenses'),
+      fetchSheetRows(sheet, month + 'Income'),
+      ...BUDGET_CATS.map(cat => fetchSheetRows(sheet, month + cat.replace(' ','')))
+    ]);
+
+    const totalIncome  = incRows.reduce((s,r) => s + (parseFloat(r.values[0][1]) || 0), 0);
+    const totalExpense = expRows.reduce((s,r) => s + (parseFloat(r.values[0][1]) || 0), 0);
+
+    if (!expRows.length && !incRows.length) {
+      document.getElementById('dashboard-loading').style.display = 'none';
+      document.getElementById('dashboard-empty').style.display = '';
+      return;
+    }
+
+    document.getElementById('db-income').textContent  = '$' + totalIncome.toFixed(2);
+    document.getElementById('db-expense').textContent = '$' + totalExpense.toFixed(2);
+    document.getElementById('db-income-label').textContent  = 'Income';
+    document.getElementById('db-expense-label').textContent = 'Expenses';
+    const net = totalIncome - totalExpense;
+    const netEl = document.getElementById('db-net');
+    netEl.textContent = (net >= 0 ? '+$' : '-$') + Math.abs(net).toFixed(2);
+    netEl.style.color = net >= 0 ? '#34c759' : '#ff3b30';
+
+    let barsHtml = '';
+    BUDGET_CATS.forEach((cat, i) => {
+      const rows = budgetRows[i];
+      const color = CAT_COLORS[cat];
+      let catProjected = 0, catActual = 0;
+      const subBars = [];
+      rows.forEach(r => {
+        const subcat    = r.values[0][0] || '';
+        const projected = parseFloat(r.values[0][1]) || 0;
+        const actual    = parseFloat(r.values[0][2]) || 0;
+        catProjected += projected;
+        catActual    += actual;
+        if (projected > 0 || actual > 0) subBars.push(budgetBar(subcat, projected, actual, color, true));
+      });
+      if (catProjected > 0 || catActual > 0) {
+        barsHtml += budgetBar(cat, catProjected, catActual, color, false);
+        barsHtml += subBars.join('');
+        barsHtml += '<div style="height:8px"></div>';
+      }
+    });
+
+    document.getElementById('db-top5').innerHTML = barsHtml || '<p style="font-size:14px;color:#6e6e73">No budget data found.</p>';
+    document.getElementById('dashboard-loading').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = '';
+  }
+
+  async function loadYearDashboard() {
+    // Get all months that have data (already validated in populateMonthSelect)
+    const sel = document.getElementById('dashboard-month');
+    const validMonths = Array.from(sel.options)
+      .map(o => o.value)
+      .filter(v => v !== 'YEAR_2026');
+
+    const monthsCount = validMonths.length;
+    const annualBudgetMonths = 12;
+
+    // Fetch all data in parallel
+    const allData = await Promise.all(validMonths.map(async sheet => {
+      const month = sheet.split(' ')[0];
+      const [expRows, incRows, ...budgetRows] = await Promise.all([
+        fetchSheetRows(sheet, month + 'Expenses'),
+        fetchSheetRows(sheet, month + 'Income'),
+        ...BUDGET_CATS.map(cat => fetchSheetRows(sheet, month + cat.replace(' ','')))
+      ]);
+      return { expRows, incRows, budgetRows };
+    }));
+
+    // Aggregate income and expense totals
+    let totalIncome = 0, totalExpense = 0;
+    allData.forEach(d => {
+      totalIncome  += d.incRows.reduce((s,r) => s + (parseFloat(r.values[0][1]) || 0), 0);
+      totalExpense += d.expRows.reduce((s,r) => s + (parseFloat(r.values[0][1]) || 0), 0);
+    });
+
+    document.getElementById('db-income').textContent  = '$' + totalIncome.toFixed(2);
+    document.getElementById('db-expense').textContent = '$' + totalExpense.toFixed(2);
+    document.getElementById('db-income-label').textContent  = 'Income YTD';
+    document.getElementById('db-expense-label').textContent = 'Expenses YTD';
+    const net = totalIncome - totalExpense;
+    const netEl = document.getElementById('db-net');
+    netEl.textContent = (net >= 0 ? '+$' : '-$') + Math.abs(net).toFixed(2);
+    netEl.style.color = net >= 0 ? '#34c759' : '#ff3b30';
+
+    // Aggregate budget data per category across all months
+    // Annual budget = sum of monthly projected costs x 12
+    // Annual actual = sum of actual costs across all months so far
+    let barsHtml = '';
+    BUDGET_CATS.forEach((cat, catIdx) => {
+      const color = CAT_COLORS[cat];
+
+      // Collect subcategory data across all months
+      const subcatData = {};
+      let catAnnualProjected = 0, catYTDActual = 0;
+
+      allData.forEach(d => {
+        const rows = d.budgetRows[catIdx];
+        rows.forEach(r => {
+          const subcat    = r.values[0][0] || '';
+          const projected = parseFloat(r.values[0][1]) || 0;
+          const actual    = parseFloat(r.values[0][2]) || 0;
+          if (!subcatData[subcat]) subcatData[subcat] = { annualProjected: 0, ytdActual: 0, monthlyProjected: 0 };
+          subcatData[subcat].monthlyProjected = projected; // same each month
+          subcatData[subcat].ytdActual += actual;
+        });
+      });
+
+      // Annual projected = monthly projected x 12
+      Object.values(subcatData).forEach(s => {
+        s.annualProjected = s.monthlyProjected * annualBudgetMonths;
+        catAnnualProjected += s.annualProjected;
+        catYTDActual += s.ytdActual;
+      });
+
+      if (catAnnualProjected > 0 || catYTDActual > 0) {
+        const subBars = Object.entries(subcatData)
+          .filter(([, s]) => s.annualProjected > 0 || s.ytdActual > 0)
+          .map(([subcat, s]) => budgetBar(subcat, s.annualProjected, s.ytdActual, color, true));
+
+        barsHtml += budgetBar(cat, catAnnualProjected, catYTDActual, color, false);
+        barsHtml += subBars.join('');
+        barsHtml += '<div style="height:8px"></div>';
+      }
+    });
+
+    document.getElementById('db-top5').innerHTML = barsHtml || '<p style="font-size:14px;color:#6e6e73">No budget data found.</p>';
+    document.getElementById('dashboard-loading').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = '';
+  }
+
   function initDashboard() {
+    document.getElementById('dashboard-loading').style.display = '';
     populateMonthSelect();
-    loadDashboard();
   }
 
   function switchTab(tab) {
