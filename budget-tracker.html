@@ -202,6 +202,75 @@
       font-weight: 500;
     }
     .empty-trips { font-size: 14px; color: #6e6e73; padding: 8px 0 4px; }
+    body.dark {
+      background: #1c1c1e;
+      color: #f2f2f7;
+    }
+    body.dark h1 { color: #f2f2f7; }
+    body.dark .card {
+      background: #2c2c2e;
+      box-shadow: none;
+    }
+    body.dark .tab {
+      background: #2c2c2e;
+      color: #98989f;
+      box-shadow: none;
+    }
+    body.dark .tab.active {
+      background: #f2f2f7;
+      color: #1c1c1e;
+    }
+    body.dark input,
+    body.dark select,
+    body.dark textarea {
+      background: #3a3a3c;
+      border-color: #48484a;
+      color: #f2f2f7;
+    }
+    body.dark input:focus,
+    body.dark select:focus,
+    body.dark textarea:focus {
+      border-color: #0a84ff;
+      background: #3a3a3c;
+    }
+    body.dark label { color: #98989f; }
+    body.dark .toggle-btn {
+      background: #3a3a3c;
+      border-color: #48484a;
+      color: #98989f;
+    }
+    body.dark .toggle-btn.active-expense { background: #3d1f1f; border-color: #ff453a; color: #ff453a; }
+    body.dark .toggle-btn.active-income  { background: #1f3d2a; border-color: #30d158; color: #30d158; }
+    body.dark .user-bar span { color: #98989f; }
+    body.dark .recent-title,
+    body.dark .section-title { color: #f2f2f7; }
+    body.dark .tx-cat { color: #f2f2f7; }
+    body.dark .tx-meta { color: #98989f; }
+    body.dark .tx-row { border-bottom-color: #3a3a3c; }
+    body.dark .trip-row { border-bottom-color: #3a3a3c; }
+    body.dark .trip-row span { color: #f2f2f7; }
+    body.dark .no-recent,
+    body.dark .empty-trips { color: #98989f; }
+    body.dark .toast { background: #3a3a3c; }
+    body.dark .route-monthly { background: #1a2f44; color: #0a84ff; }
+    body.dark .route-travel  { background: #3d2e00; color: #ffd60a; }
+    .theme-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 0;
+      line-height: 1;
+      margin-left: 8px;
+    }
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .header-row h1 { margin-bottom: 0; }
+
     .recent-title { font-size: 15px; font-weight: 600; color: #1c1c1e; margin-bottom: 12px; }
     .tx-row {
       display: flex;
@@ -222,7 +291,10 @@
 </head>
 <body>
 
-<h1>Budget Tracker</h1>
+<div class="header-row">
+  <h1>Budget Tracker</h1>
+  <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" title="Toggle dark mode">&#9790;</button>
+</div>
 
 <div id="signin-section" class="card signin-card" style="display:none">
   <p>Sign in with your Microsoft account to log transactions to your Excel budget on OneDrive.</p>
@@ -373,6 +445,7 @@
   let trips  = JSON.parse(localStorage.getItem('budget_trips') || '[]');
 
   function saveTrips() { localStorage.setItem('budget_trips', JSON.stringify(trips)); }
+
 
   async function getToken() {
     const accounts = msalClient.getAllAccounts();
@@ -620,6 +693,24 @@
     t.className = 'toast' + (isError ? ' error' : '') + ' show';
     setTimeout(() => { t.className = 'toast' + (isError ? ' error' : ''); }, 3500);
   }
+
+  // Theme
+  function toggleTheme() {
+    const isDark = document.body.classList.toggle('dark');
+    localStorage.setItem('budget_theme', isDark ? 'dark' : 'light');
+    document.getElementById('theme-btn').innerHTML = isDark ? '&#9728;' : '&#9790;';
+  }
+
+  function applyTheme() {
+    const saved = localStorage.getItem('budget_theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (saved === 'dark' || (!saved && prefersDark)) {
+      document.body.classList.add('dark');
+      document.getElementById('theme-btn').innerHTML = '&#9728;';
+    }
+  }
+
+  applyTheme();
 
   // Init
   initMsal();
