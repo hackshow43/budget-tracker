@@ -761,8 +761,17 @@
         const date = r.values[0][0] || '';
         const amt  = parseFloat(r.values[0][1]) || 0;
         const loc  = r.values[0][2] || '—';
-        const d    = new Date(date + 'T12:00:00');
-        const dateStr = isNaN(d) ? date : d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+        let dateStr = date;
+        // Handle Excel serial number dates (days since 1900-01-01)
+        const serial = parseFloat(date);
+        if (!isNaN(serial) && serial > 1000) {
+          const excelEpoch = new Date(1899, 11, 30);
+          const d = new Date(excelEpoch.getTime() + serial * 86400000);
+          dateStr = d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+        } else {
+          const d = new Date(date + 'T12:00:00');
+          if (!isNaN(d)) dateStr = d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+        }
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid ${borderColor};font-size:12px">
           <span style="color:${metaColor}">${dateStr}</span>
           <span style="flex:1;margin:0 8px;color:${textColor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${loc}</span>
