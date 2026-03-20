@@ -950,10 +950,11 @@
       });
 
       if (catAnnualProjected > 0 || catYTDActual > 0) {
+        const isSavings = cat === 'Savings';
         const subBars = Object.entries(subcatData)
           .filter(([, s]) => s.annualProjected > 0 || s.ytdActual > 0)
           .map(([subcat, s]) => budgetBar(subcat, s.annualProjected, s.ytdActual, color, true, isSavings, yearPacePct));
-        
+
         barsHtml += budgetBar(cat, catAnnualProjected, catYTDActual, color, false, isSavings, yearPacePct);
         barsHtml += subBars.join('');
         barsHtml += '<div style="height:8px"></div>';
