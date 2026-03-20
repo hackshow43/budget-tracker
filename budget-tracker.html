@@ -258,6 +258,7 @@
     body.dark #db-top5 .top5-bar-bg { background: #3a3a3c !important; }
     body.dark #dashboard-loading,
     body.dark #dashboard-empty { color: #98989f; }
+    body.dark #db-nws-legend span { color: #98989f !important; }
     body.dark #db-donut-title,
     body.dark .top5-label { color: #f2f2f7 !important; }
     body.dark .route-travel  { background: #3d2e00; color: #ffd60a; }
@@ -445,6 +446,11 @@
           <div style="font-size:14px;font-weight:600;margin-bottom:14px" id="db-chart-title">Budget vs actual</div>
           <div id="db-top5"></div>
         </div>
+        <div id="db-nws-section" style="display:none;margin-top:8px">
+          <div style="font-size:14px;font-weight:600;margin-bottom:10px">Needs · Wants · Savings</div>
+          <canvas id="db-nws-chart" height="200"></canvas>
+          <div id="db-nws-legend" style="display:flex;justify-content:center;gap:16px;margin-top:10px;font-size:13px"></div>
+        </div>
       </div>
       <div id="dashboard-empty" style="text-align:center;padding:24px 0;color:#6e6e73;font-size:14px;display:none">No data found for this month.</div>
     </div>
@@ -454,6 +460,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
   // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
   const CLIENT_ID  = 'b60dd629-2fd9-4db4-9b10-9433f14b7bdb';
@@ -573,13 +580,27 @@
   }
 
   const BUDGET_CATS = [
-    'Transportation', 'Food', 'Personal Care', 'Entertainment', 'Savings', 'Gifts'
+    'Transportation', 'Food', 'Personal Care', 'Entertainment', 'Savings', 'Gifts', 'Housing', 'Loans'
   ];
 
   const CAT_COLORS = {
-    Transportation: '#007aff', Food: '#34c759', 'Personal Care': '#af52de',
-    Entertainment: '#ff9500', Savings: '#00c7be', Gifts: '#ff2d55'
+    Transportation: '#007aff',
+    Food: '#00c7be',
+    'Personal Care': '#ff6ec7',
+    Entertainment: '#ffcc00',
+    Savings: '#5e5ce6',
+    Gifts: '#40c8e0',
+    Housing: '#af52de',
+    Loans: '#ff9f0a'
   };
+
+  const NWS_GROUPS = {
+    Needs:   ['Housing', 'Transportation', 'Insurance', 'Food', 'Loans', 'Personal Care'],
+    Wants:   ['Entertainment', 'Gifts', 'Trips', 'Travel'],
+    Savings: ['Savings']
+  };
+
+  const NWS_COLORS = { Needs: '#007aff', Wants: '#ff6ec7', Savings: '#5e5ce6' };
 
   const ALL_2026_MONTHS = [
     'January 2026','February 2026','March 2026','April 2026','May 2026','June 2026',
@@ -644,6 +665,62 @@
     return data.value || [];
   }
 
+  let nwsChart = null;
+
+  function renderNwsChart(expRows) {
+    const isDark = document.body.classList.contains('dark');
+    const totals = { Needs: 0, Wants: 0, Savings: 0 };
+    expRows.forEach(r => {
+      const cat = r.values[0][3] || '';
+      for (const [group, cats] of Object.entries(NWS_GROUPS)) {
+        if (cats.includes(cat)) { totals[group] += parseFloat(r.values[0][1]) || 0; break; }
+      }
+    });
+
+    const labels = Object.keys(totals).filter(k => totals[k] > 0);
+    const data   = labels.map(k => totals[k]);
+    const colors = labels.map(k => NWS_COLORS[k]);
+    const total  = data.reduce((s,v) => s+v, 0);
+
+    if (nwsChart) nwsChart.destroy();
+    const ctx = document.getElementById('db-nws-chart').getContext('2d');
+    nwsChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: isDark ? '#2c2c2e' : '#fff' }] },
+      options: {
+        cutout: '60%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.label}: $${c.raw.toFixed(2)} (${((c.raw/total)*100).toFixed(0)}%)` } }
+        }
+      }
+    });
+
+    document.getElementById('db-nws-legend').innerHTML = labels.map((l,i) =>
+      `<span style="color:${colors[i]};font-weight:600">${l}</span><span style="color:var(--color-text-secondary)"> $${data[i].toFixed(0)} · ${((data[i]/total)*100).toFixed(0)}%</span>`
+    ).join('<span style="color:#ccc"> | </span>');
+
+    document.getElementById('db-nws-section').style.display = '';
+  }
+
+  function getPacePct(isYearly, sheetName) {
+    const now = new Date();
+    if (isYearly) {
+      const start = new Date(now.getFullYear(), 0, 1);
+      const end   = new Date(now.getFullYear() + 1, 0, 1);
+      return ((now - start) / (end - start)) * 100;
+    } else {
+      const year  = parseInt(sheetName.split(' ')[1]);
+      const month = new Date(Date.parse(sheetName.split(' ')[0] + ' 1')).getMonth();
+      const start = new Date(year, month, 1);
+      const end   = new Date(year, month + 1, 1);
+      const now2  = new Date();
+      if (now2 >= end) return 100;
+      if (now2 < start) return 0;
+      return ((now2 - start) / (end - start)) * 100;
+    }
+  }
+
   function pctColor(pct, baseColor, isSavings) {
     if (isSavings) {
       if (pct >= 100) return '#34c759';
@@ -655,7 +732,7 @@
     return baseColor;
   }
 
-  function budgetBar(label, projected, actual, color, isSubcat, isSavings) {
+  function budgetBar(label, projected, actual, color, isSubcat, isSavings, pacePct) {
     const pct = projected > 0 ? Math.min((actual / projected) * 100, 110) : 0;
     const displayPct = projected > 0 ? ((actual / projected) * 100).toFixed(0) : '—';
     const remaining = projected - actual;
@@ -665,6 +742,8 @@
     const labelColor = isDark ? '#f2f2f7' : '#1c1c1e';
     const subLabelColor = isDark ? '#b0b0b8' : '#6e6e73';
     const metaColor = isDark ? '#98989f' : '#6e6e73';
+    const tickColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.35)';
+    const barHeight = isSubcat ? 5 : 8;
 
     let remainingStr = '';
     if (projected > 0) {
@@ -679,14 +758,19 @@
       }
     }
 
+    const tickHtml = (pacePct != null && pacePct > 2 && pacePct < 100)
+      ? `<div style="position:absolute;top:-2px;left:${Math.min(pacePct,99).toFixed(1)}%;width:2px;height:${barHeight+4}px;background:${tickColor};border-radius:1px;transform:translateX(-50%)"></div>`
+      : '';
+
     return `
       <div style="margin-bottom:${isSubcat ? 8 : 14}px;${isSubcat ? 'padding-left:14px;border-left:2px solid ' + color + '33' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:${isSubcat ? 12 : 13}px;margin-bottom:4px">
           <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}${remainingStr}</span>
           <span style="color:${metaColor};font-size:11px">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
         </div>
-        <div style="background:${bgColor};border-radius:4px;height:${isSubcat ? 5 : 8}px;overflow:hidden">
-          <div style="height:100%;width:${pct.toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease"></div>
+        <div style="position:relative;background:${bgColor};border-radius:4px;height:${barHeight}px;overflow:visible">
+          <div style="height:100%;width:${pct.toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease;overflow:hidden"></div>
+          ${tickHtml}
         </div>
       </div>`;
   }
@@ -699,6 +783,7 @@
     document.getElementById('dashboard-loading').style.display = '';
     document.getElementById('dashboard-content').style.display = 'none';
     document.getElementById('dashboard-empty').style.display = 'none';
+    document.getElementById('db-nws-section').style.display = 'none';
 
     try {
       if (value === 'YEAR_2026') {
@@ -740,6 +825,7 @@
     netEl.textContent = (net >= 0 ? '+$' : '-$') + Math.abs(net).toFixed(2);
     netEl.style.color = net >= 0 ? '#34c759' : '#ff3b30';
 
+    const pacePct = getPacePct(false, sheet);
     let barsHtml = '';
     BUDGET_CATS.forEach((cat, i) => {
       const rows = budgetRows[i];
@@ -756,13 +842,14 @@
       });
       if (catProjected > 0 || catActual > 0) {
         const isSavings = cat === 'Savings';
-        barsHtml += budgetBar(cat, catProjected, catActual, color, false, isSavings);
-        barsHtml += subBars.map(([subcat, proj, act]) => budgetBar(subcat, proj, act, color, true, isSavings)).join('');
+        barsHtml += budgetBar(cat, catProjected, catActual, color, false, isSavings, pacePct);
+        barsHtml += subBars.map(([subcat, proj, act]) => budgetBar(subcat, proj, act, color, true, isSavings, pacePct)).join('');
         barsHtml += '<div style="height:8px"></div>';
       }
     });
 
     document.getElementById('db-top5').innerHTML = barsHtml || '<p style="font-size:14px;color:#6e6e73">No budget data found.</p>';
+    renderNwsChart(expRows);
     document.getElementById('dashboard-loading').style.display = 'none';
     document.getElementById('dashboard-content').style.display = '';
   }
@@ -776,6 +863,7 @@
 
     const monthsCount = validMonths.length;
     const annualBudgetMonths = 12;
+    const yearPacePct = getPacePct(true, null);
 
     // Fetch all data in parallel
     const allData = await Promise.all(validMonths.map(async sheet => {
@@ -846,6 +934,8 @@
     });
 
     document.getElementById('db-top5').innerHTML = barsHtml || '<p style="font-size:14px;color:#6e6e73">No budget data found.</p>';
+    const allExpRows = allData.flatMap(d => d.expRows);
+    renderNwsChart(allExpRows);
     document.getElementById('dashboard-loading').style.display = 'none';
     document.getElementById('dashboard-content').style.display = '';
   }
