@@ -6,8 +6,7 @@
   <title>Budget Tracker</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="$Logr">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Budget">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -458,6 +457,10 @@
   </div>
 </div>
 
+<div style="text-align:center;padding:20px 16px 32px;font-size:11px;color:#98989f;letter-spacing:0.5px">
+  $LOGR &nbsp;|&nbsp; Your Budget App &nbsp;|&nbsp; Peregrine Studios 2026
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
@@ -731,34 +734,30 @@
     document.getElementById('db-nws-section').style.display = '';
   }
 
-  function toggleTxList(barId) {
-    const el = document.getElementById(barId);
-    const chev = document.getElementById('chev-' + barId);
-    if (!el) return;
-    const isOpen = el.style.display !== 'none';
+  function toggleTxList(el) {
+    const listId = el.getAttribute('data-listid');
+    const subcat = el.getAttribute('data-subcat');
+    const listEl = document.getElementById(listId);
+    const chev = el.querySelector('.chev');
+    if (!listEl) return;
+    const isOpen = listEl.style.display !== 'none';
     if (isOpen) {
-      el.style.display = 'none';
-      if (chev) { chev.style.transform = ''; }
+      listEl.style.display = 'none';
+      if (chev) chev.style.transform = '';
       return;
     }
-    // Extract subcat name from barId
-    const subcat = barId.replace('txlist-', '').replace(/_/g, ' ');
     const expRows = window._currentExpRows || [];
     const isDark = document.body.classList.contains('dark');
     const metaColor = isDark ? '#98989f' : '#6e6e73';
     const textColor = isDark ? '#f2f2f7' : '#1c1c1e';
     const borderColor = isDark ? '#3a3a3c' : '#f2f2f7';
-
-    // Match transactions to this subcat (fuzzy match since barId replaces spaces with _)
-    const txs = expRows.filter(r => {
-      const rowSubcat = (r.values[0][4] || '').replace(/[^a-z0-9]/gi,'_');
-      return rowSubcat === subcat || (r.values[0][4] || '') === barId.replace('txlist-','').replace(/_/g,' ');
-    }).sort((a,b) => new Date(b.values[0][0]) - new Date(a.values[0][0]));
+    const txs = expRows.filter(r => (r.values[0][4] || '') === subcat)
+      .sort((a,b) => new Date(b.values[0][0]) - new Date(a.values[0][0]));
 
     if (!txs.length) {
-      el.innerHTML = `<p style="font-size:12px;color:${metaColor};padding:4px 0 6px">No transactions found.</p>`;
+      listEl.innerHTML = `<p style="font-size:12px;color:${metaColor};padding:4px 0 6px">No transactions found.</p>`;
     } else {
-      el.innerHTML = txs.map(r => {
+      listEl.innerHTML = txs.map(r => {
         const date = r.values[0][0] || '';
         const amt  = parseFloat(r.values[0][1]) || 0;
         const loc  = r.values[0][2] || '—';
@@ -781,8 +780,8 @@
       }).join('');
     }
 
-    el.style.display = 'block';
-    if (chev) { chev.style.transform = 'rotate(90deg)'; }
+    listEl.style.display = 'block';
+    if (chev) chev.style.transform = 'rotate(90deg)';
   }
 
   function getPacePct(isYearly, sheetName) {
@@ -844,21 +843,22 @@
       ? `<div style="position:absolute;top:-2px;left:${Math.min(pacePct,99).toFixed(1)}%;width:2px;height:${barHeight+4}px;background:${tickColor};border-radius:1px;transform:translateX(-50%)"></div>`
       : '';
 
-    const barId = isSubcat ? 'txlist-' + label.replace(/[^a-z0-9]/gi,'_') : null;
-    const clickAttr = isSubcat ? `onclick="toggleTxList('${barId}')" style="cursor:pointer"` : '';
-    const chevron = isSubcat ? `<span id="chev-${barId}" style="font-size:10px;color:${metaColor};margin-left:4px;transition:transform 0.2s;display:inline-block">▶</span>` : '';
+    const safeId = isSubcat ? 'txlist-' + Math.random().toString(36).slice(2,8) : null;
+    const clickAttr = isSubcat ? `onclick="toggleTxList(this)" data-subcat="${label.replace(/"/g,'&quot;')}" data-listid="${safeId}" style="cursor:pointer"` : '';
+    const chevron = isSubcat ? `<span class="chev" style="font-size:10px;color:${metaColor};margin-left:4px;transition:transform 0.2s;display:inline-block">▶</span>` : '';
 
     return `
       <div style="margin-bottom:${isSubcat ? 8 : 14}px;${isSubcat ? 'padding-left:14px;border-left:2px solid ' + color + '33' : ''}">
         <div ${clickAttr} style="display:flex;justify-content:space-between;align-items:baseline;font-size:${isSubcat ? 12 : 13}px;margin-bottom:4px;${isSubcat ? 'user-select:none' : ''}">
           <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}${chevron}${remainingStr}</span>
-          <span style="color:${metaColor};font-size:11px">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
+          <span style="flex:1"></span>
+          <span style="color:${metaColor};font-size:11px;white-space:nowrap">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
         </div>
         <div style="position:relative;background:${bgColor};border-radius:4px;height:${barHeight}px;overflow:visible">
           <div style="height:100%;width:${Math.min(pct,100).toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease;overflow:hidden"></div>
           ${tickHtml}
         </div>
-        ${isSubcat ? `<div id="${barId}" style="display:none;margin-top:8px"></div>` : ''}
+        ${isSubcat ? `<div id="${safeId}" style="display:none;margin-top:8px"></div>` : ''}
       </div>`;
   }
 
