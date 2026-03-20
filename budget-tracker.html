@@ -667,13 +667,40 @@
 
   let nwsChart = null;
 
-  function renderNwsChart(expRows) {
+  function renderNwsChart(expRows, personalCareBudgetRows) {
     const isDark = document.body.classList.contains('dark');
     const totals = { Needs: 0, Wants: 0, Savings: 0 };
+
+    // Build a map of Personal Care sub-category projected amounts
+    const pcBudget = {};
+    if (personalCareBudgetRows) {
+      personalCareBudgetRows.forEach(r => {
+        const subcat    = r.values[0][0] || '';
+        const projected = parseFloat(r.values[0][1]) || 0;
+        pcBudget[subcat] = projected;
+      });
+    }
+
+    // Track how much of each PC sub-category has been spent so far
+    const pcSpent = {};
+
     expRows.forEach(r => {
-      const cat = r.values[0][3] || '';
-      for (const [group, cats] of Object.entries(NWS_GROUPS)) {
-        if (cats.includes(cat)) { totals[group] += parseFloat(r.values[0][1]) || 0; break; }
+      const cat    = r.values[0][3] || '';
+      const subcat = r.values[0][4] || '';
+      const amt    = parseFloat(r.values[0][1]) || 0;
+
+      if (cat === 'Personal Care') {
+        const budget = pcBudget[subcat] || 0;
+        const spentSoFar = pcSpent[subcat] || 0;
+        const needsAmt = Math.max(0, Math.min(amt, budget - spentSoFar));
+        const wantsAmt = amt - needsAmt;
+        pcSpent[subcat] = spentSoFar + amt;
+        totals.Needs += needsAmt;
+        totals.Wants += wantsAmt;
+      } else {
+        for (const [group, cats] of Object.entries(NWS_GROUPS)) {
+          if (cats.includes(cat)) { totals[group] += amt; break; }
+        }
       }
     });
 
@@ -769,7 +796,7 @@
           <span style="color:${metaColor};font-size:11px">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
         </div>
         <div style="position:relative;background:${bgColor};border-radius:4px;height:${barHeight}px;overflow:visible">
-          <div style="height:100%;width:${pct.toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease;overflow:hidden"></div>
+          <div style="height:100%;width:${Math.min(pct,100).toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease;overflow:hidden"></div>
           ${tickHtml}
         </div>
       </div>`;
@@ -849,7 +876,7 @@
     });
 
     document.getElementById('db-top5').innerHTML = barsHtml || '<p style="font-size:14px;color:#6e6e73">No budget data found.</p>';
-    renderNwsChart(expRows);
+    renderNwsChart(expRows, budgetRows[2]);
     document.getElementById('dashboard-loading').style.display = 'none';
     document.getElementById('dashboard-content').style.display = '';
   }
@@ -935,7 +962,9 @@
 
     document.getElementById('db-top5').innerHTML = barsHtml || '<p style="font-size:14px;color:#6e6e73">No budget data found.</p>';
     const allExpRows = allData.flatMap(d => d.expRows);
-    renderNwsChart(allExpRows);
+    const pcIdx = BUDGET_CATS.indexOf('Personal Care');
+    const pcBudgetRows = allData.length > 0 ? allData[0].budgetRows[pcIdx] : [];
+    renderNwsChart(allExpRows, pcBudgetRows);
     document.getElementById('dashboard-loading').style.display = 'none';
     document.getElementById('dashboard-content').style.display = '';
   }
