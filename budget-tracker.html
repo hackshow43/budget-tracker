@@ -730,6 +730,51 @@
     document.getElementById('db-nws-section').style.display = '';
   }
 
+  function toggleTxList(barId) {
+    const el = document.getElementById(barId);
+    const chev = document.getElementById('chev-' + barId);
+    if (!el) return;
+    const isOpen = el.style.display !== 'none';
+    if (isOpen) {
+      el.style.display = 'none';
+      if (chev) { chev.style.transform = ''; }
+      return;
+    }
+    // Extract subcat name from barId
+    const subcat = barId.replace('txlist-', '').replace(/_/g, ' ');
+    const expRows = window._currentExpRows || [];
+    const isDark = document.body.classList.contains('dark');
+    const metaColor = isDark ? '#98989f' : '#6e6e73';
+    const textColor = isDark ? '#f2f2f7' : '#1c1c1e';
+    const borderColor = isDark ? '#3a3a3c' : '#f2f2f7';
+
+    // Match transactions to this subcat (fuzzy match since barId replaces spaces with _)
+    const txs = expRows.filter(r => {
+      const rowSubcat = (r.values[0][4] || '').replace(/[^a-z0-9]/gi,'_');
+      return rowSubcat === subcat || (r.values[0][4] || '') === barId.replace('txlist-','').replace(/_/g,' ');
+    }).sort((a,b) => new Date(b.values[0][0]) - new Date(a.values[0][0]));
+
+    if (!txs.length) {
+      el.innerHTML = `<p style="font-size:12px;color:${metaColor};padding:4px 0 6px">No transactions found.</p>`;
+    } else {
+      el.innerHTML = txs.map(r => {
+        const date = r.values[0][0] || '';
+        const amt  = parseFloat(r.values[0][1]) || 0;
+        const loc  = r.values[0][2] || '—';
+        const d    = new Date(date + 'T12:00:00');
+        const dateStr = isNaN(d) ? date : d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid ${borderColor};font-size:12px">
+          <span style="color:${metaColor}">${dateStr}</span>
+          <span style="flex:1;margin:0 8px;color:${textColor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${loc}</span>
+          <span style="font-weight:600;color:${textColor}">$${amt.toFixed(2)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    el.style.display = 'block';
+    if (chev) { chev.style.transform = 'rotate(90deg)'; }
+  }
+
   function getPacePct(isYearly, sheetName) {
     const now = new Date();
     if (isYearly) {
@@ -789,16 +834,21 @@
       ? `<div style="position:absolute;top:-2px;left:${Math.min(pacePct,99).toFixed(1)}%;width:2px;height:${barHeight+4}px;background:${tickColor};border-radius:1px;transform:translateX(-50%)"></div>`
       : '';
 
+    const barId = isSubcat ? 'txlist-' + label.replace(/[^a-z0-9]/gi,'_') : null;
+    const clickAttr = isSubcat ? `onclick="toggleTxList('${barId}')" style="cursor:pointer"` : '';
+    const chevron = isSubcat ? `<span id="chev-${barId}" style="font-size:10px;color:${metaColor};margin-left:4px;transition:transform 0.2s;display:inline-block">▶</span>` : '';
+
     return `
       <div style="margin-bottom:${isSubcat ? 8 : 14}px;${isSubcat ? 'padding-left:14px;border-left:2px solid ' + color + '33' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:${isSubcat ? 12 : 13}px;margin-bottom:4px">
-          <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}${remainingStr}</span>
+        <div ${clickAttr} style="display:flex;justify-content:space-between;align-items:baseline;font-size:${isSubcat ? 12 : 13}px;margin-bottom:4px;${isSubcat ? 'user-select:none' : ''}">
+          <span style="font-weight:${isSubcat ? 400 : 600};color:${isSubcat ? subLabelColor : labelColor}">${label}${chevron}${remainingStr}</span>
           <span style="color:${metaColor};font-size:11px">$${actual.toFixed(0)} / $${projected.toFixed(0)} &nbsp;<span style="font-weight:600;color:${barColor}">${displayPct}%</span></span>
         </div>
         <div style="position:relative;background:${bgColor};border-radius:4px;height:${barHeight}px;overflow:visible">
           <div style="height:100%;width:${Math.min(pct,100).toFixed(1)}%;background:${barColor};border-radius:4px;transition:width 0.5s ease;overflow:hidden"></div>
           ${tickHtml}
         </div>
+        ${isSubcat ? `<div id="${barId}" style="display:none;margin-top:8px"></div>` : ''}
       </div>`;
   }
 
@@ -811,6 +861,7 @@
     document.getElementById('dashboard-content').style.display = 'none';
     document.getElementById('dashboard-empty').style.display = 'none';
     document.getElementById('db-nws-section').style.display = 'none';
+    window._currentExpRows = [];
 
     try {
       if (value === 'YEAR_2026') {
@@ -852,6 +903,8 @@
     netEl.textContent = (net >= 0 ? '+$' : '-$') + Math.abs(net).toFixed(2);
     netEl.style.color = net >= 0 ? '#34c759' : '#ff3b30';
 
+    window._currentExpRows = expRows;
+    window._currentSheet = sheet;
     const pacePct = getPacePct(false, sheet);
     let barsHtml = '';
     BUDGET_CATS.forEach((cat, i) => {
