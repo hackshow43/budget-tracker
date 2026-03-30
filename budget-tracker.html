@@ -1295,20 +1295,51 @@
 
   function parseTangerine(text) {
     const txs = [];
-    // Format: DD-Mon-YYYY DD-Mon-YYYY Merchant Amount Rewards
-    const regex = /(\d{2}-[A-Za-z]{3}-\d{4})\s+\d{2}-[A-Za-z]{3}-\d{4}\s+(.+?)\s+(-?\$?[\d,]+\.\d{2})\s+\$?[\d,]+\.\d{2}/g;
+
+    // Find transaction section — after the header row
+    const startIdx = text.indexOf('Transaction Date');
+    if (startIdx === -1) return txs;
+    const txSection = text.slice(startIdx + 16);
+
+    // Format: $REWARD $AMOUNT MERCHANT DD-Mon-YYYY DD-Mon-YYYY
+    // Or with foreign currency: $REWARD $AMOUNT MERCHANT X.XX USD @ RATE DD-Mon-YYYY DD-Mon-YYYY
+    // Transaction date is the LAST date on the line
+    const regex = /\$?([\d.]+)\s+\$([\d,]+\.\d{2})\s+((?:[A-Za-z*#'][A-Za-z0-9 *.#&'\-\/]+?))\s+(?:[\d.]+ [A-Z]{3} @ [\d.]+\s+)?(\d{2}-[A-Za-z]{3}-\d{4})\s+(\d{2}-[A-Za-z]{3}-\d{4})/g;
+
     let match;
-    while ((match = regex.exec(text)) !== null) {
-      const dateStr = match[1];
-      const merchant = match[2].trim();
-      const amtStr = match[3].replace('$','').replace(',','');
+    while ((match = regex.exec(txSection)) !== null) {
+      const merchant = match[3].trim();
+      const postedDate = match[4];
+      const txDate = match[5]; // transaction date is last
+      const amtStr = match[2].replace(',', '');
       const amount = parseFloat(amtStr);
+
       if (isNaN(amount)) continue;
-      const d = new Date(dateStr);
+      if (merchant.toUpperCase().includes('PAYMENT') || merchant === '–' || merchant === '-') continue;
+
+      // Clean merchant — strip city/province suffixes
+      const cleanedName = merchant
+        .replace(/\s+(AB|BC|ON|QC|MB|SK|NS|NB|PE|NL|NT|YT|NU)\s*$/g, '')
+        .replace(/\b(CALGARY|EDMONTON|TORONTO|VANCOUVER|MONTREAL|CHILLIWACK|ABBOTSFORD|BURNABY|SURREY|COQUITLAM|HALIFAX)\b/g, '')
+        .replace(/\s+/g, ' ').trim();
+
+      const d = new Date(txDate);
       if (isNaN(d)) continue;
       const date = d.toISOString().split('T')[0];
-      txs.push({ date, merchant, amount: Math.abs(amount), isIncome: amount < 0 });
+
+      txs.push({ date, merchant: cleanedName, amount, isIncome: false });
     }
+
+    // Also catch payment/credit lines: – -$AMOUNT – PAYMENT... DATE DATE
+    const payRegex = /–\s+-\$([\d,]+\.\d{2})\s+–\s+PAYMENT[^\d]+(\d{2}-[A-Za-z]{3}-\d{4})\s+(\d{2}-[A-Za-z]{3}-\d{4})/g;
+    while ((match = payRegex.exec(txSection)) !== null) {
+      const amount = parseFloat(match[1].replace(',',''));
+      const d = new Date(match[3]);
+      if (!isNaN(amount) && !isNaN(d)) {
+        txs.push({ date: d.toISOString().split('T')[0], merchant: 'Payment', amount, isIncome: true });
+      }
+    }
+
     return txs;
   }
 
