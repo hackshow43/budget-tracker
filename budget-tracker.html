@@ -1361,14 +1361,41 @@
     return await fetchSheetRows(sheet, month + 'Expenses');
   }
 
+  function cleanMerchant(name) {
+    return name
+      .replace(/[A-Z0-9]{5,}/g, '')       // strip reference codes like W9YNPE, HMM2YRREFR
+      .replace(/\d{3,}/g, '')                   // strip long numbers
+      .replace(/(AB|BC|ON|QC|MB|SK|NS|NB|PE|NL|NT|YT|NU)/g, '') // strip provinces
+      .replace(/(CALGARY|EDMONTON|TORONTO|VANCOUVER|MONTREAL|CHILLIWACK|ABBOTSFORD|BURNABY|SURREY)/g, '') // strip cities
+      .replace(/[*@#.]+/g, ' ')                 // strip special chars
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function merchantMatch(rawMerchant, excelLocation) {
+    if (!rawMerchant || !excelLocation) return false;
+    const cleanRaw = cleanMerchant(rawMerchant);
+    const cleanExcel = excelLocation.toLowerCase().trim();
+
+    // Direct contains check both ways
+    if (cleanRaw.includes(cleanExcel) || cleanExcel.includes(cleanRaw)) return true;
+
+    // Check if first significant word of raw matches anything in excel location
+    const rawWords = cleanRaw.split(' ').filter(w => w.length > 3);
+    const excelWords = cleanExcel.split(' ').filter(w => w.length > 3);
+
+    // Any word overlap
+    return rawWords.some(rw => excelWords.some(ew => rw.includes(ew) || ew.includes(rw)));
+  }
+
   function isDuplicate(tx, existingRows) {
     return existingRows.some(r => {
       const rowAmt = parseFloat(r.values[0][1]) || 0;
       const rowDate = r.values[0][0] || '';
-      const rowLoc = (r.values[0][2] || '').toLowerCase();
+      const rowLoc = r.values[0][2] || '';
       const txAmt = parseFloat(tx.amount.toFixed(2));
       const amtMatch = Math.abs(rowAmt - txAmt) < 0.01;
-      const locMatch = rowLoc.includes(tx.merchant.toLowerCase().slice(0,6));
       // Date match: handle Excel serial number
       let dateMatch = false;
       const serial = parseFloat(rowDate);
@@ -1379,7 +1406,22 @@
       } else {
         dateMatch = rowDate === tx.date;
       }
-      return amtMatch && dateMatch;
+      // Amount + date match is strong signal — merchant is secondary fuzzy check
+      if (amtMatch && dateMatch) return true;
+      // If amount matches and merchant fuzzy matches, flag even if date is off by 1-2 days
+      if (amtMatch && merchantMatch(tx.merchant, rowLoc)) {
+        const txD = new Date(tx.date);
+        let rowD;
+        if (!isNaN(serial) && serial > 1000) {
+          const excelEpoch = new Date(1899, 11, 30);
+          rowD = new Date(excelEpoch.getTime() + serial * 86400000);
+        } else {
+          rowD = new Date(rowDate);
+        }
+        const diffDays = Math.abs((txD - rowD) / 86400000);
+        if (diffDays <= 3) return true;
+      }
+      return false;
     });
   }
 
@@ -1438,7 +1480,8 @@
         const sheet = getSheetName(tx.date);
         const existing = importExistingBySheet[sheet] || [];
         const dup = isDuplicate(tx, existing);
-        const guess = tx.isIncome ? { category: 'Income', subcat: '', confidence: 'high' } : guessCategory(tx.merchant);
+        const cleanedMerchant = cleanMerchant(tx.merchant);
+        const guess = tx.isIncome ? { category: 'Income', subcat: '', confidence: 'high' } : (guessCategory(tx.merchant) || guessCategory(cleanedMerchant));
         return { ...tx, sheet, dup, skip: dup, ...guess };
       });
 
