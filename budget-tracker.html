@@ -262,6 +262,12 @@
     body.dark .signout-btn { color: #c9a84c; }
     body.dark .submit-btn { background: #4a7c3f; color: #e8f0e4; }
     body.dark .signin-btn { background: #4a7c3f; }
+    body.dark #import-inner { background: #142f1e !important; }
+    body.dark #import-inner span, body.dark #import-inner p { color: #e8f0e4 !important; }
+    body.dark #import-drop { border-color: #2a5235 !important; }
+    body.dark .import-card { background: #1a3d26 !important; border-color: #2a5235 !important; }
+    body.dark .import-card-label { color: #7a9e72 !important; }
+    body.dark .import-card-merchant { color: #e8f0e4 !important; }
     body.dark #app-footer { color: #4a7c3f; }
     body.dark .db-metric-card { background: #1a3d26 !important; border: 1px solid #2a5235; }
     body.dark .db-metric-card div:first-child { color: #7a9e72 !important; }
@@ -423,6 +429,7 @@
       </div>
 
       <button class="submit-btn" id="submit-btn" onclick="submitTransaction()">Add transaction</button>
+      <button onclick="openImport()" style="width:100%;margin-top:10px;padding:11px;background:none;border:1px solid #e5e5ea;border-radius:12px;font-size:14px;color:#6e6e73;cursor:pointer">Import bank statement</button>
     </div>
     <div class="card" id="recent-card" style="margin-top:14px">
       <div class="recent-title">Recent transactions</div>
@@ -474,6 +481,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
   // ─── CONFIG — replace CLIENT_ID with your Application (client) ID from Azure ───
@@ -1203,6 +1211,297 @@
   }
 
   applyTheme();
+
+
+  // ── Merchant memory ──────────────────────────────────────────────────────
+  let merchantMemory = JSON.parse(localStorage.getItem('budget_merchants') || '{}');
+
+  function saveMerchantMemory() {
+    localStorage.setItem('budget_merchants', JSON.stringify(merchantMemory));
+  }
+
+  function learnMerchant(merchant, category, subcat) {
+    merchantMemory[merchant.toLowerCase()] = { category, subcat };
+    saveMerchantMemory();
+  }
+
+  // ── Keyword rules for unknown merchants ──────────────────────────────────
+  const MERCHANT_KEYWORDS = [
+    { keywords: ['shoppers','pharma','pharmacy','rexall','guardian','medicine','drug mart'], category: 'Personal Care', subcat: 'Supplements/Meds' },
+    { keywords: ['superstore','sobeys','loblaws','safeway','save-on','no frills','food basics','metro','iga','freshco','walmart','costco','wholesale'], category: 'Food', subcat: 'Groceries' },
+    { keywords: ['tim horton','mcdonalds','starbucks','subway','pizza','sushi','restaurant','bistro','kitchen','grill','cafe','diner','thai','indian','chinese','korean','japanese','vietnamese','burger','taco','wendy','a&w','harvey','dairy queen','poutine','dining'], category: 'Food', subcat: 'Dining out' },
+    { keywords: ['shell','esso','petro','chevron','husky','ultramar','pioneer','irving','gas','fuel','co-op fuel'], category: 'Transportation', subcat: 'Fuel' },
+    { keywords: ['presto','ttc','oc transpo','transit','bus','via rail','greyhound','uber','lyft','taxi','cab'], category: 'Transportation', subcat: 'Bus/taxi fare' },
+    { keywords: ['netflix','spotify','apple.com/bill','google play','youtube','disney','crave','prime video'], category: 'Entertainment', subcat: 'Spotify' },
+    { keywords: ['icloud','apple storage'], category: 'Entertainment', subcat: 'iCloud Storage' },
+    { keywords: ['amazon'], category: 'Food', subcat: 'Groceries' },
+    { keywords: ['lcbo','beer store','liquor'], category: 'Entertainment', subcat: 'Night out' },
+    { keywords: ['sport','athletic','fitness','yoga','gym','goodlife'], category: 'Personal Care', subcat: 'Health club' },
+    { keywords: ['hair','nail','salon','spa','barber','beauty'], category: 'Personal Care', subcat: 'Hair/nails' },
+    { keywords: ['clothing','fashion','zara','h&m','gap','old navy','uniqlo','winners','homesense','marshalls'], category: 'Personal Care', subcat: 'Clothing' },
+    { keywords: ['insurance','intact','wawanesa','aviva'], category: 'Insurance', subcat: 'Home' },
+    { keywords: ['hydro','electricity','enbridge','gas utility','fortis'], category: 'Housing', subcat: 'Electricity' },
+    { keywords: ['rogers','telus','bell','fido','koodo','public mobile','chatr','virgin mobile'], category: 'Housing', subcat: 'Phone' },
+    { keywords: ['internet','shaw','videotron','cogeco','teksavvy'], category: 'Housing', subcat: 'Internet' },
+    { keywords: ['rent','landlord','property'], category: 'Housing', subcat: 'Rent' },
+    { keywords: ['westjet','air canada','porter','flair','sunwing','swoop','flight','airline'], category: 'Travel', subcat: 'Flights' },
+    { keywords: ['hotel','marriott','hilton','hyatt','fairmont','best western','holiday inn','airbnb','vrbo'], category: 'Travel', subcat: 'Hotel' },
+  ];
+
+  function guessCategory(merchant) {
+    const lower = merchant.toLowerCase();
+    if (merchantMemory[lower]) return merchantMemory[lower];
+    for (const rule of MERCHANT_KEYWORDS) {
+      if (rule.keywords.some(k => lower.includes(k))) {
+        return { category: rule.category, subcat: rule.subcat, confidence: 'medium' };
+      }
+    }
+    return { category: '', subcat: '', confidence: 'low' };
+  }
+
+  // ── PDF parsing ───────────────────────────────────────────────────────────
+  function detectBank(text) {
+    if (text.includes('Tangerine')) return 'tangerine';
+    if (text.includes('Royal Bank') || text.includes('RBC')) return 'rbc';
+    return 'unknown';
+  }
+
+  function parseTangerine(text) {
+    const txs = [];
+    // Format: DD-Mon-YYYY DD-Mon-YYYY Merchant Amount Rewards
+    const regex = /(\d{2}-[A-Za-z]{3}-\d{4})\s+\d{2}-[A-Za-z]{3}-\d{4}\s+(.+?)\s+(-?\$?[\d,]+\.\d{2})\s+\$?[\d,]+\.\d{2}/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const dateStr = match[1];
+      const merchant = match[2].trim();
+      const amtStr = match[3].replace('$','').replace(',','');
+      const amount = parseFloat(amtStr);
+      if (isNaN(amount)) continue;
+      const d = new Date(dateStr);
+      if (isNaN(d)) continue;
+      const date = d.toISOString().split('T')[0];
+      txs.push({ date, merchant, amount: Math.abs(amount), isIncome: amount < 0 });
+    }
+    return txs;
+  }
+
+  function parseRBC(text) {
+    const txs = [];
+    const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+    // Format: MON DD MON DD Merchant ... Amount
+    const regex = /([A-Z]{3})\s+(\d{1,2})\s+[A-Z]{3}\s+\d{1,2}\s+([A-Z][^\r\n]+?)\s+(-?[\d,]+\.\d{2})/g;
+    let match;
+    const year = new Date().getFullYear();
+    while ((match = regex.exec(text)) !== null) {
+      const mon = match[1];
+      const day = parseInt(match[2]);
+      const merchant = match[3].trim().replace(/\s{2,}.*/,'');
+      const amtStr = match[4].replace(',','');
+      const amount = parseFloat(amtStr);
+      if (isNaN(amount) || !(mon in months)) continue;
+      const d = new Date(year, months[mon], day);
+      const date = d.toISOString().split('T')[0];
+      txs.push({ date, merchant, amount: Math.abs(amount), isIncome: amount < 0 });
+    }
+    return txs;
+  }
+
+  function parseStatement(text) {
+    const bank = detectBank(text);
+    if (bank === 'tangerine') return { bank: 'Tangerine', txs: parseTangerine(text) };
+    if (bank === 'rbc') return { bank: 'RBC', txs: parseRBC(text) };
+    return { bank: 'Unknown', txs: [] };
+  }
+
+  // ── Duplicate detection ───────────────────────────────────────────────────
+  async function fetchMonthExpenses(sheet) {
+    const month = sheet.split(' ')[0];
+    return await fetchSheetRows(sheet, month + 'Expenses');
+  }
+
+  function isDuplicate(tx, existingRows) {
+    return existingRows.some(r => {
+      const rowAmt = parseFloat(r.values[0][1]) || 0;
+      const rowDate = r.values[0][0] || '';
+      const rowLoc = (r.values[0][2] || '').toLowerCase();
+      const txAmt = parseFloat(tx.amount.toFixed(2));
+      const amtMatch = Math.abs(rowAmt - txAmt) < 0.01;
+      const locMatch = rowLoc.includes(tx.merchant.toLowerCase().slice(0,6));
+      // Date match: handle Excel serial number
+      let dateMatch = false;
+      const serial = parseFloat(rowDate);
+      if (!isNaN(serial) && serial > 1000) {
+        const excelEpoch = new Date(1899, 11, 30);
+        const d = new Date(excelEpoch.getTime() + serial * 86400000);
+        dateMatch = d.toISOString().split('T')[0] === tx.date;
+      } else {
+        dateMatch = rowDate === tx.date;
+      }
+      return amtMatch && dateMatch;
+    });
+  }
+
+  // ── Import UI ─────────────────────────────────────────────────────────────
+  let importTxs = [];
+  let importExistingBySheet = {};
+
+  function openImport() {
+    document.getElementById('import-modal').style.display = 'block';
+    document.getElementById('import-step-upload').style.display = 'block';
+    document.getElementById('import-step-review').style.display = 'none';
+    document.getElementById('import-parsing').style.display = 'none';
+    document.getElementById('pdf-file-input').value = '';
+  }
+
+  function closeImport() {
+    document.getElementById('import-modal').style.display = 'none';
+    importTxs = [];
+    importExistingBySheet = {};
+  }
+
+  async function handlePdfUpload(input) {
+    const file = input.files[0];
+    if (!file) return;
+    document.getElementById('import-drop').style.display = 'none';
+    document.getElementById('import-parsing').style.display = 'block';
+
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        fullText += tc.items.map(item => item.str).join(' ') + '\n';
+      }
+
+      const { bank, txs } = parseStatement(fullText);
+      if (!txs.length) {
+        document.getElementById('import-parsing').textContent = `Could not extract transactions from this ${bank} statement. Please try another file.`;
+        return;
+      }
+
+      // Fetch existing rows for duplicate checking grouped by sheet
+      const sheets = [...new Set(txs.map(tx => getSheetName(tx.date)))];
+      importExistingBySheet = {};
+      await Promise.all(sheets.map(async sheet => {
+        importExistingBySheet[sheet] = await fetchMonthExpenses(sheet);
+      }));
+
+      // Categorize and flag duplicates
+      importTxs = txs.map(tx => {
+        const sheet = getSheetName(tx.date);
+        const existing = importExistingBySheet[sheet] || [];
+        const dup = isDuplicate(tx, existing);
+        const guess = tx.isIncome ? { category: 'Income', subcat: '', confidence: 'high' } : guessCategory(tx.merchant);
+        return { ...tx, sheet, dup, skip: dup, ...guess };
+      });
+
+      renderImportReview(bank);
+    } catch(e) {
+      document.getElementById('import-parsing').textContent = 'Error reading PDF: ' + e.message;
+    }
+  }
+
+  function renderImportReview(bank) {
+    document.getElementById('import-step-upload').style.display = 'none';
+    document.getElementById('import-parsing').style.display = 'none';
+    document.getElementById('import-step-review').style.display = 'block';
+
+    const total = importTxs.length;
+    const dups = importTxs.filter(t => t.dup).length;
+    document.getElementById('import-review-count').textContent =
+      `${bank} · ${total} transactions · ${dups} possible duplicate${dups !== 1 ? 's' : ''}`;
+
+    const isDark = document.body.classList.contains('dark');
+    const cardBg = isDark ? '#1a3d26' : '#f9f9f9';
+    const cardBorder = isDark ? '#2a5235' : '#e5e5ea';
+    const textPrimary = isDark ? '#e8f0e4' : '#1c1c1e';
+    const textSecondary = isDark ? '#7a9e72' : '#6e6e73';
+
+    document.getElementById('import-tx-list').innerHTML = importTxs.map((tx, i) => {
+      const statusColor = tx.dup ? '#ff9500' : tx.confidence === 'low' ? '#ff3b30' : '#34c759';
+      const statusLabel = tx.dup ? 'Possible duplicate' : tx.confidence === 'low' ? 'Needs category' : 'Ready';
+      const catOptions = ['Housing','Transportation','Insurance','Food','Personal Care','Entertainment','Loans','Savings','Gifts','Travel'].map(c =>
+        `<option value="${c}" ${c === tx.category ? 'selected' : ''}>${c}</option>`
+      ).join('');
+      const subcatOptions = (subcats[tx.category] || []).map(s =>
+        `<option value="${s}" ${s === tx.subcat ? 'selected' : ''}>${s}</option>`
+      ).join('');
+
+      return `<div class="import-card" style="background:${cardBg};border:1px solid ${cardBorder};border-radius:12px;padding:12px;margin-bottom:10px;${tx.skip ? 'opacity:0.4' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div>
+            <div class="import-card-merchant" style="font-size:14px;font-weight:600;color:${textPrimary}">${tx.merchant}</div>
+            <div class="import-card-label" style="font-size:12px;color:${textSecondary}">${tx.date} · ${tx.sheet}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:15px;font-weight:700;color:${tx.isIncome ? '#34c759' : '#ff3b30'}">${tx.isIncome ? '+' : '-'}$${tx.amount.toFixed(2)}</div>
+            <div style="font-size:11px;color:${statusColor};font-weight:500">${statusLabel}</div>
+          </div>
+        </div>
+        ${!tx.isIncome ? `<div style="display:flex;gap:8px;margin-bottom:8px">
+          <select onchange="updateImportTx(${i},'category',this.value)" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid ${cardBorder};border-radius:8px;background:${cardBg};color:${textPrimary}">
+            <option value="">Category...</option>${catOptions}
+          </select>
+          <select id="import-subcat-${i}" onchange="updateImportTx(${i},'subcat',this.value)" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid ${cardBorder};border-radius:8px;background:${cardBg};color:${textPrimary}">
+            <option value="">Sub-category...</option>${subcatOptions}
+          </select>
+        </div>` : ''}
+        <div style="display:flex;gap:8px">
+          <button onclick="toggleImportSkip(${i})" style="flex:1;padding:7px;border:1px solid ${cardBorder};border-radius:8px;background:none;color:${textSecondary};font-size:12px;cursor:pointer">
+            ${tx.skip ? 'Include' : 'Skip'}
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function updateImportTx(i, field, value) {
+    importTxs[i][field] = value;
+    if (field === 'category') {
+      const subcatSel = document.getElementById(`import-subcat-${i}`);
+      if (subcatSel) {
+        const opts = (subcats[value] || []);
+        subcatSel.innerHTML = '<option value="">Sub-category...</option>' + opts.map(s => `<option>${s}</option>`).join('');
+        importTxs[i].subcat = '';
+      }
+    }
+  }
+
+  function toggleImportSkip(i) {
+    importTxs[i].skip = !importTxs[i].skip;
+    const card = document.getElementById('import-tx-list').children[i];
+    if (card) card.style.opacity = importTxs[i].skip ? '0.4' : '1';
+    const btn = card.querySelector('button');
+    if (btn) btn.textContent = importTxs[i].skip ? 'Include' : 'Skip';
+  }
+
+  async function submitAllImport() {
+    const toSubmit = importTxs.filter(tx => !tx.skip && !tx.isIncome && tx.category);
+    if (!toSubmit.length) { showToast('No transactions to submit.', true); return; }
+
+    const btn = document.getElementById('import-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    let successCount = 0;
+    for (const tx of toSubmit) {
+      try {
+        await appendRow(tx.sheet, [tx.date, tx.amount, tx.merchant, tx.category, tx.subcat || '', '']);
+        learnMerchant(tx.merchant, tx.category, tx.subcat);
+        successCount++;
+      } catch(e) {
+        console.error('Failed to write', tx.merchant, e);
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Submit all';
+    showToast(`${successCount} transaction${successCount !== 1 ? 's' : ''} imported!`);
+    closeImport();
+  }
 
   // Init
   initMsal();
