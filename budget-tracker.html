@@ -1474,14 +1474,18 @@
       await Promise.all(sheets.map(async sheet => {
         importExistingBySheet[sheet] = await fetchMonthExpenses(sheet);
       }));
+      // Also fetch Travel sheet for duplicate checking
+      importExistingBySheet['Travel'] = await fetchSheetRows('Travel', 'TravelExpenses');
 
       // Categorize and flag duplicates
       importTxs = txs.map(tx => {
         const sheet = getSheetName(tx.date);
-        const existing = importExistingBySheet[sheet] || [];
-        const dup = isDuplicate(tx, existing);
+        const guess = tx.isIncome ? { category: 'Income', subcat: '', confidence: 'high' } : (guessCategory(tx.merchant) || guessCategory(cleanMerchant(tx.merchant)));
+        const isTravel = guess.category === 'Travel';
+        const monthlyExisting = importExistingBySheet[sheet] || [];
+        const travelExisting = importExistingBySheet['Travel'] || [];
+        const dup = isDuplicate(tx, monthlyExisting) || (isTravel && isDuplicate(tx, travelExisting));
         const cleanedMerchant = cleanMerchant(tx.merchant);
-        const guess = tx.isIncome ? { category: 'Income', subcat: '', confidence: 'high' } : (guessCategory(tx.merchant) || guessCategory(cleanedMerchant));
         return { ...tx, sheet, dup, skip: dup, ...guess };
       });
 
@@ -1576,7 +1580,12 @@
     let successCount = 0;
     for (const tx of toSubmit) {
       try {
-        await appendRow(tx.sheet, [tx.date, tx.amount, tx.merchant, tx.category, tx.subcat || '', '']);
+        if (tx.category === 'Travel') {
+          // Travel sheet columns: Date, Amount, Location, Trip, Category, Notes
+          await appendRow('Travel', [tx.date, tx.amount, tx.merchant, tx.subcat || '', tx.category, '']);
+        } else {
+          await appendRow(tx.sheet, [tx.date, tx.amount, tx.merchant, tx.category, tx.subcat || '', '']);
+        }
         learnMerchant(tx.merchant, tx.category, tx.subcat);
         successCount++;
       } catch(e) {
