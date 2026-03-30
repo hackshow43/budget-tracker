@@ -1315,20 +1315,54 @@
   function parseRBC(text) {
     const txs = [];
     const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
-    // Format: MON DD MON DD Merchant ... Amount
-    const regex = /([A-Z]{3})\s+(\d{1,2})\s+[A-Z]{3}\s+\d{1,2}\s+([A-Z][^\r\n]+?)\s+(-?[\d,]+\.\d{2})/g;
-    let match;
     const year = new Date().getFullYear();
-    while ((match = regex.exec(text)) !== null) {
-      const mon = match[1];
-      const day = parseInt(match[2]);
-      const merchant = match[3].trim().replace(/\s{2,}.*/,'');
-      const amtStr = match[4].replace(',','');
-      const amount = parseFloat(amtStr);
-      if (isNaN(amount) || !(mon in months)) continue;
-      const d = new Date(year, months[mon], day);
-      const date = d.toISOString().split('T')[0];
-      txs.push({ date, merchant, amount: Math.abs(amount), isIncome: amount < 0 });
+
+    const startIdx = text.indexOf('AMOUNT ($)');
+    if (startIdx === -1) return txs;
+    const txSection = text.slice(startIdx);
+
+    const lines = txSection.split(/\s{2,}/);
+    let i = 0;
+    while (i < lines.length) {
+      const part = lines[i].trim();
+      const dateMatch = part.match(/^([A-Z]{3})\s+(\d{1,2})$/);
+      if (dateMatch) {
+        const mon = dateMatch[1];
+        const day = parseInt(dateMatch[2]);
+        if (!(mon in months)) { i++; continue; }
+
+        i++; // skip posting date
+        if (i >= lines.length) break;
+
+        let merchant = (lines[i] || '').trim();
+        if (!merchant || merchant.match(/^[A-Z]{3}\s+\d/)) { continue; }
+
+        merchant = merchant.replace(/\s*\d{15,}.*$/, '').trim();
+        if (merchant.includes('PAYMENT') || merchant.includes('PAIEMENT') || merchant.includes('TOTAL')) { i++; continue; }
+
+        i++;
+        // Skip foreign currency lines
+        while (i < lines.length && (lines[i].includes('Foreign Currency') || lines[i].includes('Exchange rate'))) i++;
+
+        if (i >= lines.length) break;
+        const amtPart = lines[i].trim();
+        const amtMatch = amtPart.match(/^(-?\$?[\d,]+\.\d{2})$/);
+        if (!amtMatch) { continue; }
+
+        const amtStr = amtMatch[1].replace('$','').replace(/,/g,'');
+        const amount = parseFloat(amtStr);
+        if (isNaN(amount)) { i++; continue; }
+
+        const monNum = months[mon];
+        const now = new Date();
+        let txYear = year;
+        if (monNum > now.getMonth() + 2) txYear = year - 1;
+
+        const d = new Date(txYear, monNum, day);
+        const date = d.toISOString().split('T')[0];
+        txs.push({ date, merchant, amount: Math.abs(amount), isIncome: amount < 0 });
+      }
+      i++;
     }
     return txs;
   }
