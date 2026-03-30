@@ -1404,6 +1404,8 @@
       }
 
       const { bank, txs } = parseStatement(fullText);
+      window._lastPdfText = fullText;
+      console.log('Raw PDF text:', fullText.slice(0, 2000));
       if (!txs.length) {
         document.getElementById('import-parsing').textContent = `Could not extract transactions from this ${bank} statement. Please try another file.`;
         return;
