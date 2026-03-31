@@ -1685,11 +1685,13 @@
       try {
         if (tx.category === 'Travel') {
           // Travel sheet columns: Date, Amount, Location, Trip, Category, Notes
-          await appendRow('Travel', [tx.date, tx.amount, tx.merchant, tx.subcat || '', tx.category, '']);
+          const writeName = cleanMerchant(tx.merchant) || tx.merchant;
+          await appendRow('Travel', [tx.date, tx.amount, writeName, tx.subcat || '', tx.category, '']);
         } else {
-          await appendRow(tx.sheet, [tx.date, tx.amount, tx.merchant, tx.category, tx.subcat || '', '']);
+          const writeName = cleanMerchant(tx.merchant) || tx.merchant;
+          await appendRow(tx.sheet, [tx.date, tx.amount, writeName, tx.category, tx.subcat || '', '']);
         }
-        learnMerchant(tx.merchant, tx.category, tx.subcat);
+        learnMerchant(writeName, tx.category, tx.subcat);
         successCount++;
       } catch(e) {
         console.error('Failed to write', tx.merchant, e);
