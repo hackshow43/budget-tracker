@@ -1420,40 +1420,35 @@
     return rawWords.some(rw => excelWords.some(ew => rw.includes(ew) || ew.includes(rw)));
   }
 
+  function resolveExcelDate(rawDate) {
+    const serial = parseFloat(rawDate);
+    if (!isNaN(serial) && serial > 1000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      return new Date(excelEpoch.getTime() + serial * 86400000);
+    }
+    return new Date(rawDate);
+  }
+
   function isDuplicate(tx, existingRows) {
-    return existingRows.some(r => {
+    for (const r of existingRows) {
       const rowAmt = parseFloat(r.values[0][1]) || 0;
       const rowDate = r.values[0][0] || '';
       const rowLoc = r.values[0][2] || '';
       const txAmt = parseFloat(tx.amount.toFixed(2));
       const amtMatch = Math.abs(rowAmt - txAmt) < 0.01;
-      // Date match: handle Excel serial number
-      let dateMatch = false;
-      const serial = parseFloat(rowDate);
-      if (!isNaN(serial) && serial > 1000) {
-        const excelEpoch = new Date(1899, 11, 30);
-        const d = new Date(excelEpoch.getTime() + serial * 86400000);
-        dateMatch = d.toISOString().split('T')[0] === tx.date;
-      } else {
-        dateMatch = rowDate === tx.date;
+      const rowD = resolveExcelDate(rowDate);
+      const txD = new Date(tx.date);
+      const dateMatch = rowD.toISOString().split('T')[0] === tx.date;
+      const diffDays = Math.abs((txD - rowD) / 86400000);
+
+      if (amtMatch && dateMatch) {
+        return { isDup: true, match: { date: rowD, amount: rowAmt, location: rowLoc } };
       }
-      // Amount + date match is strong signal — merchant is secondary fuzzy check
-      if (amtMatch && dateMatch) return true;
-      // If amount matches and merchant fuzzy matches, flag even if date is off by 1-2 days
-      if (amtMatch && merchantMatch(tx.merchant, rowLoc)) {
-        const txD = new Date(tx.date);
-        let rowD;
-        if (!isNaN(serial) && serial > 1000) {
-          const excelEpoch = new Date(1899, 11, 30);
-          rowD = new Date(excelEpoch.getTime() + serial * 86400000);
-        } else {
-          rowD = new Date(rowDate);
-        }
-        const diffDays = Math.abs((txD - rowD) / 86400000);
-        if (diffDays <= 3) return true;
+      if (amtMatch && merchantMatch(tx.merchant, rowLoc) && diffDays <= 3) {
+        return { isDup: true, match: { date: rowD, amount: rowAmt, location: rowLoc } };
       }
-      return false;
-    });
+    }
+    return { isDup: false, match: null };
   }
 
   // ── Import UI ─────────────────────────────────────────────────────────────
@@ -1515,9 +1510,11 @@
         const isTravel = guess.category === 'Travel';
         const monthlyExisting = importExistingBySheet[sheet] || [];
         const travelExisting = importExistingBySheet['Travel'] || [];
-        const dup = isDuplicate(tx, monthlyExisting) || (isTravel && isDuplicate(tx, travelExisting));
-        const cleanedMerchant = cleanMerchant(tx.merchant);
-        return { ...tx, sheet, dup, skip: dup, ...guess };
+        const monthlyDup = isDuplicate(tx, monthlyExisting);
+        const travelDup = isTravel ? isDuplicate(tx, travelExisting) : { isDup: false, match: null };
+        const dup = monthlyDup.isDup || travelDup.isDup;
+        const dupMatch = monthlyDup.match || travelDup.match;
+        return { ...tx, sheet, dup, skip: dup, dupMatch, ...guess };
       });
 
       renderImportReview(bank);
@@ -1545,6 +1542,13 @@
     document.getElementById('import-tx-list').innerHTML = importTxs.map((tx, i) => {
       const statusColor = tx.dup ? '#ff9500' : tx.confidence === 'low' ? '#ff3b30' : '#34c759';
       const statusLabel = tx.dup ? 'Possible duplicate' : tx.confidence === 'low' ? 'Needs category' : 'Ready';
+      const dupInfo = tx.dup && tx.dupMatch ? (() => {
+        const d = tx.dupMatch.date;
+        const dateStr = d instanceof Date && !isNaN(d) ? d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : '';
+        return `<div style="background:#fff8e6;border:1px solid #ff9500;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#854f0b">
+          <span style="font-weight:600">Matches in Excel:</span> ${dateStr} · ${tx.dupMatch.location || '—'} · $${tx.dupMatch.amount.toFixed(2)}
+        </div>`;
+      })() : '';
       const catOptions = ['Housing','Transportation','Insurance','Food','Personal Care','Entertainment','Loans','Savings','Gifts','Travel'].map(c =>
         `<option value="${c}" ${c === tx.category ? 'selected' : ''}>${c}</option>`
       ).join('');
@@ -1553,6 +1557,7 @@
       ).join('');
 
       return `<div class="import-card" style="background:${cardBg};border:1px solid ${cardBorder};border-radius:12px;padding:12px;margin-bottom:10px;${tx.skip ? 'opacity:0.4' : ''}">
+        ${dupInfo}
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div>
             <div class="import-card-merchant" style="font-size:14px;font-weight:600;color:${textPrimary}">${tx.merchant}</div>
