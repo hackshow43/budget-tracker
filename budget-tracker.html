@@ -1290,6 +1290,7 @@
   function detectBank(text) {
     if (text.includes('Tangerine')) return 'tangerine';
     if (text.includes('Royal Bank') || text.includes('RBC')) return 'rbc';
+    if (text.includes('CIBC') || text.includes('cibc')) return 'cibc';
     return 'unknown';
   }
 
@@ -1379,10 +1380,76 @@
     return txs;
   }
 
+  function parseCIBC(text) {
+    const txs = [];
+    const months = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    const year = new Date().getFullYear();
+    const CIBC_CATS = /Restaurants|Retail and Grocery|Personal and Household Expenses|Professional and Financial Services|Hotel, Entertainment and Recreation|Home and Office Improvement|Health and Education|Foreign Currency Transactions|Transportation|Other Transactions/;
+
+    const startIdx = text.indexOf('Your new charges and credits');
+    if (startIdx === -1) return txs;
+    const txSection = text.slice(startIdx);
+
+    const txLines = txSection.split(/(?=[A-Z][a-z]{2}\s+\d{1,2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s)/);
+
+    for (const line of txLines) {
+      const dateMatch = line.match(/^([A-Z][a-z]{2})\s+(\d{1,2})\s+[A-Z][a-z]{2}\s+\d{1,2}\s+/);
+      if (!dateMatch) continue;
+      const mon = dateMatch[1];
+      const day = parseInt(dateMatch[2]);
+      if (!(mon in months)) continue;
+
+      let rest = line.slice(dateMatch[0].length).trim().replace(/^Ý\s+/, '');
+
+      // Find spend category as anchor
+      const catMatch = CIBC_CATS.exec(rest);
+      let merchantPart, amount;
+
+      if (catMatch) {
+        merchantPart = rest.slice(0, catMatch.index).trim();
+        const afterCat = rest.slice(catMatch.index + catMatch[0].length).trim();
+        const amtMatch = afterCat.match(/(-?[\d,]+\.\d{2})\s*$/);
+        if (!amtMatch) continue;
+        amount = parseFloat(amtMatch[1].replace(/,/g, ''));
+      } else {
+        const amtMatch = rest.match(/(-?[\d,]+\.\d{2})\s*$/);
+        if (!amtMatch) continue;
+        amount = parseFloat(amtMatch[1].replace(/,/g, ''));
+        merchantPart = rest.slice(0, rest.lastIndexOf(amtMatch[1])).trim();
+      }
+
+      if (isNaN(amount)) continue;
+
+      // Clean merchant
+      merchantPart = merchantPart
+        .replace(/\s*[\d.]+ [A-Z]{3} @ [\d.]+\*{0,2}\s*/g, '')
+        .replace(/\s+\d{3}-\d{3}-\d{4}.*$/g, '')
+        .replace(/\s+\d{9,}.*$/g, '')
+        .replace(/\s+[A-Z][A-Za-z]+\s+(AB|BC|ON|QC|MB|SK|NS|NB|PE|NL|NT|YT|NU)\s*$/g, '')
+        .replace(/\s+(AB|BC|ON|QC|MB|SK|NS|NB|PE|NL|NT|YT|NU)\s*$/g, '')
+        .trim();
+
+      if (!merchantPart) continue;
+      const skipWords = ['PAYMENT','PAIEMENT','CASHBACK','REMISE','TOTAL','Card number','Trans  date'];
+      if (skipWords.some(w => merchantPart.toUpperCase().includes(w.toUpperCase()))) continue;
+
+      const monNum = months[mon];
+      const now = new Date();
+      let txYear = year;
+      if (monNum > now.getMonth() + 2) txYear = year - 1;
+
+      const d = new Date(txYear, monNum, day);
+      const date = d.toISOString().split('T')[0];
+      txs.push({ date, merchant: merchantPart, amount: Math.abs(amount), isIncome: amount < 0 });
+    }
+    return txs;
+  }
+
   function parseStatement(text) {
     const bank = detectBank(text);
     if (bank === 'tangerine') return { bank: 'Tangerine', txs: parseTangerine(text) };
     if (bank === 'rbc') return { bank: 'RBC', txs: parseRBC(text) };
+    if (bank === 'cibc') return { bank: 'CIBC', txs: parseCIBC(text) };
     return { bank: 'Unknown', txs: [] };
   }
 
