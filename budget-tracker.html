@@ -587,7 +587,7 @@
     document.getElementById('signin-section').style.display = 'none';
     document.getElementById('app-section').style.display = '';
     document.getElementById('user-name').textContent = accounts[0].name || accounts[0].username;
-    document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
+    document.getElementById('date-input').value = localDateStr();
     renderRecent();
   }
 
@@ -1217,7 +1217,7 @@
 
       document.getElementById('amount-input').value   = '';
       document.getElementById('notes-input').value    = '';
-      document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
+      document.getElementById('date-input').value = localDateStr();
       if (txType === 'expense') {
         document.getElementById('location-input').value = '';
         document.getElementById('category-select').value = '';
@@ -1723,6 +1723,14 @@
     btn.textContent = 'Submit all';
     showToast(`${successCount} transaction${successCount !== 1 ? 's' : ''} imported!`);
     closeImport();
+  }
+
+  function localDateStr(d) {
+    const dd = d || new Date();
+    const y = dd.getFullYear();
+    const m = String(dd.getMonth() + 1).padStart(2, '0');
+    const day = String(dd.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   // Init
