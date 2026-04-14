@@ -1157,10 +1157,31 @@
 
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.textContent = 'Saving...';
+    btn.textContent = 'Checking...';
 
     try {
-      const sheet = getSheetName(date);
+      const sheet = txType === 'travel' ? 'Travel' : getSheetName(date);
+      const checkSheet = txType === 'income' ? null : (document.getElementById('category-select').value === 'Travel' ? 'Travel' : getSheetName(date));
+
+      // Duplicate check
+      if (checkSheet) {
+        const tableName = checkSheet === 'Travel' ? 'TravelExpenses' : checkSheet.split(' ')[0] + 'Expenses';
+        const existing = await fetchSheetRows(checkSheet, tableName);
+        const mockTx = { date, amount: parseFloat(amount), merchant: document.getElementById('location-input')?.value?.trim() || '' };
+        const dupResult = isDuplicate(mockTx, existing);
+        if (dupResult.isDup) {
+          const d = dupResult.match.date;
+          const dateStr = d instanceof Date && !isNaN(d) ? d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) : '';
+          const msg = `Possible duplicate: ${dateStr} · ${dupResult.match.location || '—'} · $${dupResult.match.amount.toFixed(2)}. Add anyway?`;
+          if (!confirm(msg)) {
+            btn.disabled = false;
+            btn.textContent = 'Add transaction';
+            return;
+          }
+        }
+      }
+
+      btn.textContent = 'Saving...';
 
       if (txType === 'income') {
         const source = document.getElementById('source-select').value;
