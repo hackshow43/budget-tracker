@@ -203,6 +203,36 @@
       font-weight: 500;
     }
     .empty-trips { font-size: 14px; color: #6e6e73; padding: 8px 0 4px; }
+    .autocomplete-wrap { position: relative; }
+    .autocomplete-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #e5e5ea;
+      border-radius: 10px;
+      margin-top: 4px;
+      z-index: 50;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .autocomplete-item {
+      padding: 10px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #f2f2f7;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:hover { background: #f9f9f9; }
+    .autocomplete-item-sub { font-size: 12px; color: #6e6e73; }
+    body.dark .autocomplete-list { background: #1a3d26; border-color: #2a5235; box-shadow: none; }
+    body.dark .autocomplete-item { border-bottom-color: #2a5235; color: #e8f0e4; }
+    body.dark .autocomplete-item:hover { background: #142f1e; }
+    body.dark .autocomplete-item-sub { color: #7a9e72; }
     body.dark {
       background: #0d2818;
       color: #e8f0e4;
@@ -357,7 +387,13 @@
       <div id="expense-fields">
         <div class="field">
           <label>Location</label>
-          <input type="text" id="location-input" placeholder="e.g. Superstore, Shell">
+          <div class="autocomplete-wrap">
+            <input type="text" id="location-input" placeholder="e.g. Superstore, Shell"
+              oninput="showLocationSuggestions(this.value)"
+              onblur="setTimeout(hideLocationSuggestions, 150)"
+              autocomplete="off">
+            <div id="location-suggestions" class="autocomplete-list" style="display:none"></div>
+          </div>
         </div>
         <div class="field">
           <label>Category</label>
@@ -1723,6 +1759,76 @@
     btn.textContent = 'Submit all';
     showToast(`${successCount} transaction${successCount !== 1 ? 's' : ''} imported!`);
     closeImport();
+  }
+
+  function showLocationSuggestions(val) {
+    const list = document.getElementById('location-suggestions');
+    if (!val || val.length < 2) { list.style.display = 'none'; return; }
+
+    const lower = val.toLowerCase();
+    const suggestions = [];
+
+    // Check merchant memory first
+    for (const [merchant, data] of Object.entries(merchantMemory)) {
+      if (merchant.includes(lower) || lower.includes(merchant.slice(0,4))) {
+        suggestions.push({ name: merchant, category: data.category, subcat: data.subcat, source: 'memory' });
+      }
+    }
+
+    // Check keyword rules for matches
+    for (const rule of MERCHANT_KEYWORDS) {
+      if (rule.keywords.some(k => k.includes(lower) || lower.includes(k))) {
+        const name = rule.keywords.find(k => k.includes(lower) || lower.includes(k));
+        if (name && !suggestions.some(s => s.name === name)) {
+          suggestions.push({ name: val, category: rule.category, subcat: rule.subcat, source: 'keyword' });
+        }
+      }
+    }
+
+    // Also suggest previously typed locations from recent transactions
+    const recent = JSON.parse(localStorage.getItem('budget_recent') || '[]');
+    for (const tx of recent) {
+      if (tx.location && tx.location.toLowerCase().includes(lower)) {
+        if (!suggestions.some(s => s.name.toLowerCase() === tx.location.toLowerCase())) {
+          suggestions.push({ name: tx.location, category: '', subcat: '', source: 'recent' });
+        }
+      }
+    }
+
+    if (!suggestions.length) { list.style.display = 'none'; return; }
+
+    const isDark = document.body.classList.contains('dark');
+    list.innerHTML = suggestions.slice(0, 6).map(s => {
+      const label = s.category ? `${s.category}${s.subcat ? ' › ' + s.subcat : ''}` : '';
+      return `<div class="autocomplete-item" onmousedown="selectLocationSuggestion('${s.name.replace(/'/g,"\'")}','${s.category}','${s.subcat}')">
+        <span>${s.name}</span>
+        ${label ? `<span class="autocomplete-item-sub">${label}</span>` : ''}
+      </div>`;
+    }).join('');
+    list.style.display = 'block';
+  }
+
+  function hideLocationSuggestions() {
+    const list = document.getElementById('location-suggestions');
+    if (list) list.style.display = 'none';
+  }
+
+  function selectLocationSuggestion(name, category, subcat) {
+    document.getElementById('location-input').value = name;
+    hideLocationSuggestions();
+    if (category) {
+      const catSel = document.getElementById('category-select');
+      catSel.value = category;
+      updateSubcategory();
+      if (subcat) {
+        setTimeout(() => {
+          const subcatSel = document.getElementById('subcategory-select');
+          if (subcatSel) subcatSel.value = subcat;
+          const travelSel = document.getElementById('travel-subcat-select');
+          if (travelSel) travelSel.value = subcat;
+        }, 50);
+      }
+    }
   }
 
   function localDateStr(d) {
